@@ -260,6 +260,7 @@ func ListenForConnections(cluster * Cluster) {
 		log.Fatal(err)
 	}
 	for {
+		fmt.Println("Listening for messages")
 		conn, err := input.Accept() // this blocks until connection or error
 		if err != nil {
 			log.Fatal(err)
