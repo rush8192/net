@@ -312,7 +312,7 @@ func ListenForConnections(cluster * Cluster) {
 		case "RequestVoteResponse":
 			go HandleVoteResponse(message.RequestVoteResponse)			
 		case "Heartbeat":
-			self.currentTerm = message.AppendRPC.Term
+			cluster.currentTerm = message.AppendRPC.Term
 			ResetElectionTimer(cluster)
 		default:
 			fmt.Printf("Unimplemented message type; resetting election timeout\n");
