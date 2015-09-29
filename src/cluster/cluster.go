@@ -210,12 +210,14 @@ func HandleVoteRequest(vr RequestVote) {
 	}
 	conn, err := net.Dial("tcp", targetNode.ip + ":" + CLUSTER_PORT)
 	if err != nil {
-		log.Fatal("Connection error", err)
+		//log.Fatal("Connection error", err)
+		fmt.Printf("Connection error attempting to contact %s in HandleVoteRequest\n", targetNode.ip)
 	}
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(m)
 	if (err != nil) {
-		log.Fatal("encode error:", err)
+		fmt.Printf("Encode error attempting to respond to %s in HandleVoteRequest\n", targetNode.ip)
+		//log.Fatal("encode error:", err)
 	} else {
 		fmt.Printf("Sent message: %+v to: %+v\n", m, targetNode);
 	}
@@ -243,12 +245,14 @@ func Heartbeat() {
 			m.MessageType = "Heartbeat"
 			conn, err := net.Dial("tcp", member.ip + ":" + CLUSTER_PORT)
 			if err != nil {
-				log.Fatal("Connection error", err)
+				//log.Fatal("Connection error", err)
+				fmt.Printf("Connection error attempting to contact %s in Heartbeat\n", member.ip)
 			}
 			encoder := gob.NewEncoder(conn)
 			err = encoder.Encode(m)
 			if (err != nil) {
-				log.Fatal("encode error:", err)
+				fmt.Printf("Encode error attempting to send Heartbeat to %s\n", member.ip)
+				//log.Fatal("encode error:", err)
 			} else {
 				fmt.Printf("Sent message: %+v to %+v\n", m, member);
 			}
@@ -284,7 +288,9 @@ func ListenForConnections(cluster * Cluster) {
 		fmt.Println("Listening for messages")
 		conn, err := input.Accept() // this blocks until connection or error
 		if err != nil {
-			log.Fatal(err)
+			fmt.Printf("Error while accepting connection")
+			continue
+			//log.Fatal(err)
 		}
 		message := ParseMessage(conn)
 		fmt.Printf("Got message: %+v\n", message);
@@ -309,7 +315,8 @@ func ParseMessage(conn net.Conn) *Message {
 	m := &Message{}
 	err := dec.Decode(m)
 	if (err != nil) {
-		log.Fatal("decode error:", err)
+		fmt.Printf("Decode error in SendVoteRequest\n")
+		//log.Fatal("encode error:", err)
 	}
 	return m
 }
@@ -320,12 +327,14 @@ func SendVoteRequest(target *Node) {
 	m.MessageType = "RequestVote"
 	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
 	if err != nil {
-		log.Fatal("Connection error", err)
+		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.ip)
+		//log.Fatal("Connection error", err)
 	}
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(m)
 	if (err != nil) {
-		log.Fatal("encode error:", err)
+		fmt.Printf("Encode error attempting to contact %s in SendVoteRequest\n", target.ip)
+		//log.Fatal("encode error:", err)
 	} else {
 		fmt.Printf("Sent message: %+v to %+v\n", m, target)
 	}
