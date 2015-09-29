@@ -61,8 +61,13 @@ type RequestVoteResponse struct {
 	VoteGranted bool
 }
 
+type AppendEntries struct {
+	Term int64
+}
+
 type Message struct {
 	MessageType string
+	AppendRPC AppendEntries
 	RequestVote RequestVote
 	RequestVoteResponse RequestVoteResponse
 }
@@ -207,11 +212,13 @@ func HandleVoteRequest(vr RequestVote) {
 	if (targetNode == nil) {
 		// handle failure
 		fmt.Printf("No target node found!");
+		return
 	}
 	conn, err := net.Dial("tcp", targetNode.ip + ":" + CLUSTER_PORT)
 	if err != nil {
 		//log.Fatal("Connection error", err)
 		fmt.Printf("Connection error attempting to contact %s in HandleVoteRequest\n", targetNode.ip)
+		return
 	}
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(m)
@@ -243,10 +250,13 @@ func Heartbeat() {
 		if (member != cluster.self) {
 			m := &Message{}
 			m.MessageType = "Heartbeat"
+			m.AppendRPC = AppendEntries{ cluster.currentTerm }
 			conn, err := net.Dial("tcp", member.ip + ":" + CLUSTER_PORT)
 			if err != nil {
 				//log.Fatal("Connection error", err)
 				fmt.Printf("Connection error attempting to contact %s in Heartbeat\n", member.ip)
+				cluster.clusterLock.Unlock()
+				return
 			}
 			encoder := gob.NewEncoder(conn)
 			err = encoder.Encode(m)
@@ -298,7 +308,9 @@ func ListenForConnections(cluster * Cluster) {
 		case "RequestVote":
 			go HandleVoteRequest(message.RequestVote)
 		case "RequestVoteResponse":
-			go HandleVoteResponse(message.RequestVoteResponse)
+			go HandleVoteResponse(message.RequestVoteResponse)			
+		case "Heartbeat":
+			 ResetElectionTimer(cluster)
 		default:
 			fmt.Printf("Unimplemented message type; resetting election timeout\n");
 			result := ResetElectionTimer(cluster)
@@ -329,6 +341,7 @@ func SendVoteRequest(target *Node) {
 	if err != nil {
 		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.ip)
 		//log.Fatal("Connection error", err)
+		return
 	}
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(m)
