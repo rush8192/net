@@ -83,15 +83,20 @@ func ResetElectionTimer(cluster * Cluster) bool {
 			return false
 		}
 	}
+	SetRandomElectionTimer()
+	return true
+}
+
+func SetRandomElectionTimer() {
 	randomTimeout := rand.Float32()*(ELECTION_TIMEOUT_MAX - ELECTION_TIMEOUT_MIN) + ELECTION_TIMEOUT_MIN
 	fmt.Printf("Setting random timeout: %2.2f\n", randomTimeout)
 	cluster.electionTimer = time.AfterFunc(time.Duration(randomTimeout)*time.Millisecond, ElectionTimeout)
-	return true
 }
 
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
 	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
+	SetRandomElectionTimer()
 	cluster.self.state = UNKNOWN
 	cluster.currentTerm++
 	cluster.self.votedFor = cluster.self
@@ -193,7 +198,7 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.leader = newLeader
 		cluster.self.state = MEMBER
 	} else {
-		m.requestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false}
+		m.requestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
 	}
 	cluster.clusterLock.Unlock()
 	targetNode := GetNodeByHostname(vr.id)
@@ -219,6 +224,9 @@ func GetNodeByHostname(hostname string) *Node {
 	return nil
 }
 
+/*
+ * Sends a heartbeat to each of the nodes in the cluster
+ */ 
 func Heartbeat() {
 	cluster.clusterLock.Lock()
 	for _, member := range cluster.members {
@@ -266,13 +274,14 @@ func ListenForConnections(cluster * Cluster) {
 			log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		fmt.Println("Got message of type %s\n", message.messageType)
+		fmt.Printf("Got message of type %s\n", message.messageType)
 		switch message.messageType {
 		case "RequestVote":
 			go HandleVoteRequest(message.requestVote)
 		case "RequestVoteResponse":
 			go HandleVoteResponse(message.requestVoteResponse)
 		default:
+			fmt.Printf("Unimplemented message type; resetting election timeout\n");
 			result := ResetElectionTimer(cluster)
 			if (result == false) {
 				// failed to reset timer; now a candidate in new term
