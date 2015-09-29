@@ -17,9 +17,9 @@ const LEADER = "LEADER"
 const MEMBER = "MEMBER"
 const UNKNOWN = "UNKNOWN"
 
-const HEARTBEAT_INTERVAL = 2500
-const ELECTION_TIMEOUT_MIN = 5000
-const ELECTION_TIMEOUT_MAX = 10000
+const HEARTBEAT_INTERVAL = 500
+const ELECTION_TIMEOUT_MIN = 2500
+const ELECTION_TIMEOUT_MAX = 5000
 
 var cluster * Cluster
 
@@ -90,6 +90,7 @@ func ResetElectionTimer(cluster * Cluster) bool {
 			return false
 		}
 	}
+	cluster.self.votedFor = nil
 	SetRandomElectionTimer()
 	return true
 }
@@ -102,10 +103,9 @@ func SetRandomElectionTimer() {
 
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
-	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
-	SetRandomElectionTimer()
 	cluster.self.state = UNKNOWN
 	cluster.currentTerm++
+	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
 	cluster.self.votedFor = cluster.self
 	cluster.votesCollected = 1
 	for _, member := range cluster.members {
@@ -113,6 +113,7 @@ func ElectionTimeout() {
 			go SendVoteRequest(member)
 		}
 	}
+	SetRandomElectionTimer()
 	cluster.clusterLock.Unlock()
 }
 
@@ -198,10 +199,11 @@ func HandleVoteRequest(vr RequestVote) {
 	m.MessageType = "RequestVoteResponse"
 	cluster.clusterLock.Lock()
 	if (vr.Term > cluster.currentTerm && cluster.self.votedFor == nil) {
-		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		ResetElectionTimer(cluster)
+		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		cluster.currentTerm = vr.Term
 		newLeader := GetNodeByHostname(vr.Id)
+		cluster.self.votedFor = newLeader
 		cluster.leader = newLeader
 		cluster.self.state = MEMBER
 	} else {
