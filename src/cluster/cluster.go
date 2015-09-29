@@ -68,6 +68,8 @@ type Message struct {
 }
 
 func main() {
+	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
+
 	self := InitSelf("cfg/self.cfg")
 	cluster = InitCluster("cfg/cluster.cfg", self)
 	PrintClusterInfo(cluster)
