@@ -257,8 +257,7 @@ func Heartbeat() {
 			if err != nil {
 				//log.Fatal("Connection error", err)
 				fmt.Printf("Connection error attempting to contact %s in Heartbeat\n", member.ip)
-				cluster.clusterLock.Unlock()
-				return
+				continue
 			}
 			encoder := gob.NewEncoder(conn)
 			err = encoder.Encode(m)
