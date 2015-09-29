@@ -204,6 +204,7 @@ func HandleVoteRequest(vr RequestVote) {
 	targetNode := GetNodeByHostname(vr.id)
 	if (targetNode == nil) {
 		// handle failure
+		fmt.Printf("No target node found!");
 	}
 	conn, err := net.Dial("tcp", targetNode.ip + ":" + CLUSTER_PORT)
 	if err != nil {
@@ -211,8 +212,8 @@ func HandleVoteRequest(vr RequestVote) {
 	}
 	encoder := gob.NewEncoder(conn)
 	encoder.Encode(m)
+	fmt.Printf("Sent message: %+v\n", m);
 	conn.Close()
-	
 }
 
 func GetNodeByHostname(hostname string) *Node {
@@ -239,6 +240,7 @@ func Heartbeat() {
 			}
 			encoder := gob.NewEncoder(conn)
 			encoder.Encode(m)
+			fmt.Printf("Sent message: %+v\n", m);
 			conn.Close()
 		}
 	}
@@ -274,7 +276,7 @@ func ListenForConnections(cluster * Cluster) {
 			log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		fmt.Printf("Got message of type %s\n", message.messageType)
+		fmt.Printf("Got message: %+v\n", message);
 		switch message.messageType {
 		case "RequestVote":
 			go HandleVoteRequest(message.requestVote)
@@ -308,6 +310,7 @@ func SendVoteRequest(target *Node) {
 	}
 	encoder := gob.NewEncoder(conn)
 	encoder.Encode(m)
+	fmt.Printf("Sent message: %+v\n", m);
 	conn.Close()
 }
 
