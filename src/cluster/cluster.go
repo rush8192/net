@@ -187,7 +187,7 @@ func InitCluster(filename string, self * Node) * Cluster {
 }
 
 func HandleVoteRequest(vr RequestVote) {
-	var m Message = Message{}
+	m := &Message{}
 	m.messageType = "RequestVoteResponse"
 	cluster.clusterLock.Lock()
 	if (vr.term > cluster.currentTerm && cluster.self.votedFor == nil) {
@@ -232,7 +232,7 @@ func Heartbeat() {
 	cluster.clusterLock.Lock()
 	for _, member := range cluster.members {
 		if (member != cluster.self) {
-			var m Message = Message{}
+			m := &Message{}
 			m.messageType = "Heartbeat"
 			conn, err := net.Dial("tcp", member.ip + ":" + CLUSTER_PORT)
 			if err != nil {
@@ -293,15 +293,15 @@ func ListenForConnections(cluster * Cluster) {
 	}
 }
 
-func ParseMessage(conn net.Conn) Message {
+func ParseMessage(conn net.Conn) *Message {
 	dec := gob.NewDecoder(conn)
-	var m Message = Message{}
+	m := &Message{}
 	dec.Decode(m)
 	return m
 }
 
 func SendVoteRequest(target *Node) {
-	var m Message = Message{}
+	m := &Message{}
 	m.requestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
 	m.messageType = "RequestVote"
 	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
