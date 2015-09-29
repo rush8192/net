@@ -103,6 +103,11 @@ func SetRandomElectionTimer() {
 
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
+	if (cluster.self.votedFor != nil) {
+		//cast vote, so don't become candidate
+		cluster.clusterLock.Unlock()
+		return
+	}
 	cluster.self.state = UNKNOWN
 	cluster.currentTerm++
 	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
@@ -197,14 +202,14 @@ func InitCluster(filename string, self * Node) * Cluster {
 func HandleVoteRequest(vr RequestVote) {
 	m := &Message{}
 	m.MessageType = "RequestVoteResponse"
+	sender := GetNodeByHostname(vr.Id)
 	cluster.clusterLock.Lock()
-	if (vr.Term > cluster.currentTerm && cluster.self.votedFor == nil) {
+	if (vr.Term >= cluster.currentTerm && (cluster.self.votedFor == nil || cluster.self.votedFor == sender)) {
 		ResetElectionTimer(cluster)
 		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		cluster.currentTerm = vr.Term
-		newLeader := GetNodeByHostname(vr.Id)
-		cluster.self.votedFor = newLeader
-		cluster.leader = newLeader
+		cluster.self.votedFor = sender
+		cluster.leader = sender
 		cluster.self.state = MEMBER
 	} else {
 		m.RequestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
