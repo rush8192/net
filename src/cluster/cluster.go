@@ -51,20 +51,20 @@ type Cluster struct {
 }
 
 type RequestVote struct {
-	term int64
-	id string
-	lastTerm int64
+	Term int64
+	Id string
+	LastTerm int64
 }
 
 type RequestVoteResponse struct {
-	term int64
-	voteGranted bool
+	Term int64
+	VoteGranted bool
 }
 
 type Message struct {
-	messageType string
-	requestVote RequestVote
-	requestVoteResponse RequestVoteResponse
+	MessageType string
+	RequestVote RequestVote
+	RequestVoteResponse RequestVoteResponse
 }
 
 func main() {
@@ -188,20 +188,20 @@ func InitCluster(filename string, self * Node) * Cluster {
 
 func HandleVoteRequest(vr RequestVote) {
 	m := &Message{}
-	m.messageType = "RequestVoteResponse"
+	m.MessageType = "RequestVoteResponse"
 	cluster.clusterLock.Lock()
-	if (vr.term > cluster.currentTerm && cluster.self.votedFor == nil) {
-		m.requestVoteResponse = RequestVoteResponse{ vr.term, true}
+	if (vr.Term > cluster.currentTerm && cluster.self.votedFor == nil) {
+		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		ResetElectionTimer(cluster)
-		cluster.currentTerm = vr.term
-		newLeader := GetNodeByHostname(vr.id)
+		cluster.currentTerm = vr.Term
+		newLeader := GetNodeByHostname(vr.Id)
 		cluster.leader = newLeader
 		cluster.self.state = MEMBER
 	} else {
-		m.requestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
+		m.RequestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
 	}
 	cluster.clusterLock.Unlock()
-	targetNode := GetNodeByHostname(vr.id)
+	targetNode := GetNodeByHostname(vr.Id)
 	if (targetNode == nil) {
 		// handle failure
 		fmt.Printf("No target node found!");
@@ -211,12 +211,17 @@ func HandleVoteRequest(vr RequestVote) {
 		log.Fatal("Connection error", err)
 	}
 	encoder := gob.NewEncoder(conn)
-	encoder.Encode(m)
-	fmt.Printf("Sent message: %+v to %+v\n", m, targetNode);
+	err = encoder.Encode(m)
+	if (err != nil) {
+		log.Fatal("encode error:", err)
+	} else {
+		fmt.Printf("Sent message: %+v to: %+v\n", m, targetNode);
+	}
 	conn.Close()
 }
 
 func GetNodeByHostname(hostname string) *Node {
+	// TODO: set up a hash table
 	for _, member := range cluster.members {
 		if (member.hostname == hostname) {
 			return member
@@ -233,14 +238,18 @@ func Heartbeat() {
 	for _, member := range cluster.members {
 		if (member != cluster.self) {
 			m := &Message{}
-			m.messageType = "Heartbeat"
+			m.MessageType = "Heartbeat"
 			conn, err := net.Dial("tcp", member.ip + ":" + CLUSTER_PORT)
 			if err != nil {
 				log.Fatal("Connection error", err)
 			}
 			encoder := gob.NewEncoder(conn)
-			encoder.Encode(m)
-			fmt.Printf("Sent message: %+v to %+v\n", m, member);
+			err = encoder.Encode(m)
+			if (err != nil) {
+				log.Fatal("encode error:", err)
+			} else {
+				fmt.Printf("Sent message: %+v to %+v\n", m, member);
+			}
 			conn.Close()
 		}
 	}
@@ -249,7 +258,7 @@ func Heartbeat() {
 }
 
 func HandleVoteResponse(vr RequestVoteResponse) {
-	if (vr.voteGranted == true) {
+	if (vr.VoteGranted == true) {
 		cluster.clusterLock.Lock()
 		if (cluster.leader != cluster.self) {
 			cluster.votesCollected++
@@ -277,11 +286,11 @@ func ListenForConnections(cluster * Cluster) {
 		}
 		message := ParseMessage(conn)
 		fmt.Printf("Got message: %+v\n", message);
-		switch message.messageType {
+		switch message.MessageType {
 		case "RequestVote":
-			go HandleVoteRequest(message.requestVote)
+			go HandleVoteRequest(message.RequestVote)
 		case "RequestVoteResponse":
-			go HandleVoteResponse(message.requestVoteResponse)
+			go HandleVoteResponse(message.RequestVoteResponse)
 		default:
 			fmt.Printf("Unimplemented message type; resetting election timeout\n");
 			result := ResetElectionTimer(cluster)
@@ -296,21 +305,28 @@ func ListenForConnections(cluster * Cluster) {
 func ParseMessage(conn net.Conn) *Message {
 	dec := gob.NewDecoder(conn)
 	m := &Message{}
-	dec.Decode(m)
+	err := dec.Decode(m)
+	if (err != nil) {
+		log.Fatal("decode error:", err)
+	}
 	return m
 }
 
 func SendVoteRequest(target *Node) {
 	m := &Message{}
-	m.requestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
-	m.messageType = "RequestVote"
+	m.RequestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
+	m.MessageType = "RequestVote"
 	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
 	if err != nil {
 		log.Fatal("Connection error", err)
 	}
 	encoder := gob.NewEncoder(conn)
-	encoder.Encode(m)
-	fmt.Printf("Sent message: %+v to %+v\n", m, target);
+	err = encoder.Encode(m)
+	if (err != nil) {
+		log.Fatal("encode error:", err)
+	} else {
+		fmt.Printf("Sent message: %+v to %+v\n", m, target)
+	}
 	conn.Close()
 }
 
