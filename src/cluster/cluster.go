@@ -233,7 +233,7 @@ func HandleVoteRequest(vr RequestVote) {
 		fmt.Printf("Encode error attempting to respond to %s in HandleVoteRequest\n", targetNode.ip)
 		//log.Fatal("encode error:", err)
 	} else {
-		fmt.Printf("Sent message: %+v to: %+v\n", m, targetNode);
+		fmt.Printf(time.Now().String() + " Sent message: %+v to: %+v\n", m, targetNode);
 	}
 	conn.Close()
 }
@@ -270,7 +270,7 @@ func Heartbeat() {
 				fmt.Printf("Encode error attempting to send Heartbeat to %s\n", member.ip)
 				//log.Fatal("encode error:", err)
 			} else {
-				fmt.Printf("Sent message: %+v to %+v\n", m, member);
+				fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, member);
 			}
 			conn.Close()
 		}
@@ -309,7 +309,7 @@ func ListenForConnections(cluster * Cluster) {
 			//log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		fmt.Printf("Got message: %+v\n", message);
+		fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
 		switch message.MessageType {
 		case "RequestVote":
 			go HandleVoteRequest(message.RequestVote)
@@ -356,7 +356,7 @@ func SendVoteRequest(target *Node) {
 		fmt.Printf("Encode error attempting to contact %s in SendVoteRequest\n", target.ip)
 		//log.Fatal("encode error:", err)
 	} else {
-		fmt.Printf("Sent message: %+v to %+v\n", m, target)
+		fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, target)
 	}
 	conn.Close()
 }
