@@ -103,7 +103,8 @@ func SetRandomElectionTimer() {
 }
 
 /*
- * Asynchronous method that fires when 
+ * Asynchronous method that fires when a follower or candidate times out
+ * Resets state to begin a new term
  */
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
