@@ -50,6 +50,10 @@ type Cluster struct {
 	clusterLock *sync.Mutex
 }
 
+
+/* 
+ * RPC messages sent from server to server
+ */
 type RequestVote struct {
 	Term int64
 	Id string
@@ -65,6 +69,9 @@ type AppendEntries struct {
 	Term int64
 }
 
+/* 
+ * Wrapper for underlying messages
+ */
 type Message struct {
 	MessageType string
 	AppendRPC AppendEntries
@@ -76,6 +83,7 @@ var C * Cluster
 var cluster * Cluster
 
 func ResetElectionTimer(cluster * Cluster) bool {
+	fmt.Printf("resetting election timer\n")
 	if (cluster.electionTimer != nil) {
 		result := cluster.electionTimer.Stop()
 		if (result == false) {
@@ -94,13 +102,12 @@ func SetRandomElectionTimer() {
 	cluster.electionTimer = time.AfterFunc(time.Duration(randomTimeout)*time.Millisecond, ElectionTimeout)
 }
 
+/*
+ * Asynchronous method that fires when 
+ */
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
-	if (cluster.self.votedFor != nil) {
-		//cast vote, so don't become candidate
-		cluster.clusterLock.Unlock()
-		return
-	}
+	defer cluster.clusterLock.Unlock()
 	cluster.self.state = UNKNOWN
 	cluster.currentTerm++
 	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
@@ -112,10 +119,9 @@ func ElectionTimeout() {
 		}
 	}
 	SetRandomElectionTimer()
-	cluster.clusterLock.Unlock()
 }
 
-func PrintClusterInfo(cluster * Cluster) {
+func PrintClusterInfo(cluster *Cluster) {
 	fmt.Printf("Cluster: %s\n", cluster.name)
 	for index, member := range cluster.members {
 		if (member == cluster.self) {
@@ -198,11 +204,13 @@ func HandleVoteRequest(vr RequestVote) {
 	m.MessageType = "RequestVoteResponse"
 	sender := GetNodeByHostname(vr.Id)
 	cluster.clusterLock.Lock()
+	defer cluster.clusterLock.Unlock()
 	if (vr.Term > cluster.currentTerm) {
 		cluster.currentTerm = vr.Term;
 		ResetElectionTimer(cluster)
 		cluster.self.state = MEMBER
 	}
+	// accept vote
 	if (vr.Term >= cluster.currentTerm && (cluster.self.votedFor == nil || cluster.self.votedFor == sender)) {
 		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		cluster.currentTerm = vr.Term
@@ -212,28 +220,13 @@ func HandleVoteRequest(vr RequestVote) {
 	} else {
 		m.RequestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
 	}
-	cluster.clusterLock.Unlock()
 	targetNode := GetNodeByHostname(vr.Id)
 	if (targetNode == nil) {
 		// handle failure
 		fmt.Printf("No target node found!");
 		return
 	}
-	conn, err := net.Dial("tcp", targetNode.ip + ":" + CLUSTER_PORT)
-	if err != nil {
-		//log.Fatal("Connection error", err)
-		fmt.Printf("Connection error attempting to contact %s in HandleVoteRequest\n", targetNode.ip)
-		return
-	}
-	encoder := gob.NewEncoder(conn)
-	err = encoder.Encode(m)
-	if (err != nil) {
-		fmt.Printf("Encode error attempting to respond to %s in HandleVoteRequest\n", targetNode.ip)
-		//log.Fatal("encode error:", err)
-	} else {
-		fmt.Printf(time.Now().String() + " Sent message: %+v to: %+v\n", m, targetNode);
-	}
-	conn.Close()
+	go SendVoteRequestResponse(m, targetNode);
 }
 
 func GetNodeByHostname(hostname string) *Node {
@@ -251,6 +244,7 @@ func GetNodeByHostname(hostname string) *Node {
  */ 
 func Heartbeat() {
 	cluster.clusterLock.Lock()
+	defer cluster.clusterLock.Unlock()
 	for _, member := range cluster.members {
 		if (member != cluster.self) {
 			m := &Message{}
@@ -274,25 +268,29 @@ func Heartbeat() {
 		}
 	}
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
-	cluster.clusterLock.Unlock()
 }
 
 func HandleVoteResponse(vr RequestVoteResponse) {
 	if (vr.VoteGranted == true) {
 		cluster.clusterLock.Lock()
+		cluster.clusterLock.Unlock()
 		if (cluster.leader != cluster.self) {
 			cluster.votesCollected++
 			if (cluster.votesCollected > (len(cluster.members) / 2)) {
+				fmt.Printf("Won election\n");
 				cluster.electionTimer.Stop()
 				cluster.leader = cluster.self
 				cluster.self.state = LEADER
 				go Heartbeat()
 			}
 		}
-		cluster.clusterLock.Unlock()
 	} 
 }
 
+/*
+ * Loop that listens for incoming requests and dispatches them to 
+ * the appropriate handler function
+ */
 func ListenForConnections(cluster * Cluster) {
 	input, err := net.Listen("tcp", ":" + CLUSTER_PORT)
 	if err != nil {
@@ -308,22 +306,25 @@ func ListenForConnections(cluster * Cluster) {
 		}
 		message := ParseMessage(conn)
 		fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
-		switch message.MessageType {
-		case "RequestVote":
-			go HandleVoteRequest(message.RequestVote)
-		case "RequestVoteResponse":
-			go HandleVoteResponse(message.RequestVoteResponse)			
-		case "Heartbeat":
-			cluster.currentTerm = message.AppendRPC.Term
-			ResetElectionTimer(cluster)
-		default:
-			fmt.Printf("Unimplemented message type; resetting election timeout\n");
-			result := ResetElectionTimer(cluster)
-			if (result == false) {
-				// failed to reset timer; now a candidate in new term
-			}
+		go dispatchMessage(message)
+	}
+}
+
+func dispatchMessage(message *Message) {
+	switch message.MessageType {
+	case "RequestVote":
+		HandleVoteRequest(message.RequestVote)
+	case "RequestVoteResponse":
+		HandleVoteResponse(message.RequestVoteResponse)			
+	case "Heartbeat":
+		cluster.currentTerm = message.AppendRPC.Term
+		ResetElectionTimer(cluster)
+	default:
+		fmt.Printf("Unimplemented message type; resetting election timeout\n");
+		result := ResetElectionTimer(cluster)
+		if (result == false) {
+			// failed to reset timer; now a candidate in new term
 		}
-		
 	}
 }
 
@@ -332,8 +333,8 @@ func ParseMessage(conn net.Conn) *Message {
 	m := &Message{}
 	err := dec.Decode(m)
 	if (err != nil) {
-		fmt.Printf("Decode error in SendVoteRequest\n")
-		//log.Fatal("encode error:", err)
+		fmt.Printf("Decode error in Parse Message\n")
+		//log.Fatal("denode error:", err)
 	}
 	return m
 }
@@ -342,13 +343,15 @@ func SendVoteRequest(target *Node) {
 	m := &Message{}
 	m.RequestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
 	m.MessageType = "RequestVote"
+	fmt.Printf("Dialing %s\n", target.ip)
 	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
-	defer conn.Close()
 	if err != nil {
 		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.ip)
 		//log.Fatal("Connection error", err)
 		return
 	}
+	defer conn.Close()
+	fmt.Printf("Encoding message to %s\n", target.ip)
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(m)
 	if (err != nil) {
@@ -357,6 +360,23 @@ func SendVoteRequest(target *Node) {
 	} else {
 		fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, target)
 	}
-	
+}
+
+func SendVoteRequestResponse(m *Message, target *Node) {
+	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
+	if err != nil {
+		//log.Fatal("Connection error", err)
+		fmt.Printf("Connection error attempting to contact %s in HandleVoteRequest\n", target.ip)
+		return
+	}
+	encoder := gob.NewEncoder(conn)
+	err = encoder.Encode(m)
+	if (err != nil) {
+		fmt.Printf("Encode error attempting to respond to %s in HandleVoteRequest\n", target.ip)
+		//log.Fatal("encode error:", err)
+	} else {
+		fmt.Printf(time.Now().String() + " Sent message: %+v to: %+v\n", m, target);
+	}
+	conn.Close()
 }
 

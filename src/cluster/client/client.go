@@ -17,6 +17,6 @@ func delete(key string, value []byte) string {
 }
 
 func get(key string) string {
-	
+	return key
 }
 
