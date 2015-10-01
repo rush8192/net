@@ -10,7 +10,6 @@ import "math/rand"
 import "strconv"
 import "strings"
 import "sync"
-import "syscall"
 import "time"
 
 const CLUSTER_PORT = "7777"
@@ -380,28 +379,5 @@ func SendVoteRequestResponse(m *Message, target *Node) {
 		fmt.Printf(time.Now().String() + " Sent message: %+v to: %+v\n", m, target);
 	}
 	conn.Close()
-}
-
-func ListenForClients(pipename string) {
-	if _, err := os.Stat(pipename); err == nil {
-		fmt.Printf("pipe already exists")
-	} else {
-		syscall.Mknod(pipename, syscall.S_IFIFO|0666, 0)
-	}
-	readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
-		log.Fatal(err)
-	}
-	for {
-		msg := &Registration{}
-		dataDecoder := gob.NewDecoder(readPipe)
-		err = dataDecoder.Decode(msg)
-		if err != nil {
-		 fmt.Printf("Error decoding registration msg\n");
-		 log.Fatal(err)
-		}
-		fmt.Printf("Need to open pipe for reading client commands: %+v\n", msg)
-	}
 }
 
