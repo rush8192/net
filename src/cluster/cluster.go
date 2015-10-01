@@ -1,4 +1,4 @@
-package main
+package cluster
 
 import "bufio"
 import "encoding/gob"
@@ -21,8 +21,6 @@ const HEARTBEAT_INTERVAL = 500
 const ELECTION_TIMEOUT_MIN = 2500
 const ELECTION_TIMEOUT_MAX = 5000
 
-var cluster * Cluster
-
 /*
  * Represents the current state of a single Node in the cluster
  */
@@ -32,6 +30,7 @@ type Node struct {
 	lastPing time.Time
 	state string
 	votedFor *Node
+	
 }
 
 /*
@@ -44,8 +43,9 @@ type Cluster struct {
 	leader *Node
 	currentTerm int64
 	electionTimer *time.Timer
-	nextTimeout *time.Time
 	votesCollected int
+	
+	log []LogEntry
 	
 	clusterLock *sync.Mutex
 }
@@ -72,15 +72,8 @@ type Message struct {
 	RequestVoteResponse RequestVoteResponse
 }
 
-func main() {
-	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
-
-	self := InitSelf("cfg/self.cfg")
-	cluster = InitCluster("cfg/cluster.cfg", self)
-	PrintClusterInfo(cluster)
-	ResetElectionTimer(cluster)
-	ListenForConnections(cluster)
-}
+var C * Cluster
+var cluster * Cluster
 
 func ResetElectionTimer(cluster * Cluster) bool {
 	if (cluster.electionTimer != nil) {
@@ -159,14 +152,15 @@ func InitSelf(filename string) * Node {
  * may change as nodes join the cluster or go offline
  */
 func InitCluster(filename string, self * Node) * Cluster {
+	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer file.Close()
 	
-	cluster := new(Cluster)
-
+	cluster = new(Cluster)
+	C = cluster
 	
 	scanner := bufio.NewScanner(file)
 	scanner.Scan()
@@ -204,8 +198,12 @@ func HandleVoteRequest(vr RequestVote) {
 	m.MessageType = "RequestVoteResponse"
 	sender := GetNodeByHostname(vr.Id)
 	cluster.clusterLock.Lock()
-	if (vr.Term >= cluster.currentTerm && (cluster.self.votedFor == nil || cluster.self.votedFor == sender)) {
+	if (vr.Term > cluster.currentTerm) {
+		cluster.currentTerm = vr.Term;
 		ResetElectionTimer(cluster)
+		cluster.self.state = MEMBER
+	}
+	if (vr.Term >= cluster.currentTerm && (cluster.self.votedFor == nil || cluster.self.votedFor == sender)) {
 		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		cluster.currentTerm = vr.Term
 		cluster.self.votedFor = sender
@@ -345,6 +343,7 @@ func SendVoteRequest(target *Node) {
 	m.RequestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
 	m.MessageType = "RequestVote"
 	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
+	defer conn.Close()
 	if err != nil {
 		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.ip)
 		//log.Fatal("Connection error", err)
@@ -358,6 +357,6 @@ func SendVoteRequest(target *Node) {
 	} else {
 		fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, target)
 	}
-	conn.Close()
+	
 }
 
