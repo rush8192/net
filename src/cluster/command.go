@@ -12,5 +12,5 @@ type CommandType int
 type Command struct {
 	ctype CommandType
 	key string
-	value string
+	value []byte
 }

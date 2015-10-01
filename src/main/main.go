@@ -7,5 +7,6 @@ func main() {
 	clusterV := cluster.InitCluster("cfg/cluster.cfg", self)
 	cluster.PrintClusterInfo(clusterV)
 	cluster.ResetElectionTimer(clusterV)
-	cluster.ListenForConnections(clusterV)
+	go cluster.ListenForConnections(clusterV)
+	cluster.ListenForClients(cluster.REGISTER_PIPE);
 }
