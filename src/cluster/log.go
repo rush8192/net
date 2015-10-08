@@ -1,6 +1,7 @@
 package cluster
 
 import "fmt"
+import "log"
 import "time"
 
 type LogEntry struct {
@@ -144,6 +145,9 @@ func SaveStateToFile() bool {
 func AppendToLog(entry *LogEntry) bool {
 	cluster.Log = append(cluster.Log, *entry)
 	cluster.LastLogEntry++
+	if (cluster.LastLogEntry >= int64(len(cluster.Log))) {
+		log.Fatal("LastLogEntry too high\n")
+	}
 	return CommitLog()
 }
 
