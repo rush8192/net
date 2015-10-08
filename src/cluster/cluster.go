@@ -1,3 +1,11 @@
+/*
+ * Package cluster: uses the Raft consensus algorithm to build a simple, distributed,
+ * fault-tolerant key-value state machine.
+ *
+ * Intended to run as a stand-alone program on each of a cluster of machines; client
+ * programs communicate through named pipes with an instance of the cluster program
+ * running on the same machine.
+ */
 package cluster
 
 import "bufio"
@@ -13,43 +21,65 @@ import "sync"
 import "time"
 
 const CLUSTER_PORT = "7777"
-const LEADER = "LEADER"
-const MEMBER = "MEMBER"
-const UNKNOWN = "UNKNOWN"
 
+// Possible states for a node in the cluster
+const LEADER = "LEADER" /* Leader of cluster */
+const MEMBER = "MEMBER" /* Follower in cluster */
+const UPDATING = "UPDATING" /* In contact with leader, logs not up-to-date*/
+const UNKNOWN = "UNKNOWN" /* No contact with leader */
+const REDIRECT = "REDIRECT" /* Non-participant in cluster */
+
+// Timing constants (in ms)
 const HEARTBEAT_INTERVAL = 500
 const ELECTION_TIMEOUT_MIN = 2500
 const ELECTION_TIMEOUT_MAX = 5000
 
 /*
- * Represents the current state of a single Node in the cluster
- */
-type Node struct {
-	hostname string
-	ip string
-	lastPing time.Time
-	state string
-	votedFor *Node
-	
-}
-
-/*
- * Represents a cluster
+ * Represents an active cluster
  */
 type Cluster struct {
-	name string
-	members []*Node
-	self *Node
-	leader *Node
-	currentTerm int64
+	/* Basic configuration */
+	Name string
+	Members []*Node
+	Self *Node
+	Leader *Node
+	
+	/* used by election code */
 	electionTimer *time.Timer
 	votesCollected int
 	
-	log []LogEntry
+	/* persistent on all servers */
+	Log []LogEntry
+	VotedFor *Node
+	CurrentTerm int64
+	LastApplied int64
 	
-	clusterLock *sync.Mutex
+	/* volatile state on all servers */
+	LastLogEntry int64
+	commitIndex int64  // set to 0 on restart
+	
+	oustandingRPC map[string]chan bool
+	
+	/* used to synchronize access to cluster */
+	clusterLock *sync.RWMutex
 }
 
+/*
+ * Represents the current state of a single Node in the cluster
+ */
+type Node struct {
+	/* Networking information */
+	Hostname string
+	Ip string
+	
+	/* volatile state on leader */
+	nextIndex int64
+	matchIndex int64
+	state string
+	
+	/* used to synchronize access to node */
+	nodeLock *sync.RWMutex
+}
 
 /* 
  * RPC messages sent from server to server
@@ -67,6 +97,20 @@ type RequestVoteResponse struct {
 
 type AppendEntries struct {
 	Term int64
+	Entries []LogEntry
+	LeaderCommit int64
+	PrevLogIndex int64
+	PrevLogTerm int64
+	LeaderId string
+}
+
+type AppendEntriesResponse struct {
+	Term int64
+	PrevLogIndex int64
+	NewLogIndex int64
+	MemberLogIndex int64
+	Id string
+	Success bool
 }
 
 /* 
@@ -75,62 +119,13 @@ type AppendEntries struct {
 type Message struct {
 	MessageType string
 	AppendRPC AppendEntries
+	AppendRPCResponse AppendEntriesResponse
 	RequestVote RequestVote
 	RequestVoteResponse RequestVoteResponse
 }
 
 var C * Cluster
 var cluster * Cluster
-
-func ResetElectionTimer(cluster * Cluster) bool {
-	fmt.Printf("resetting election timer\n")
-	if (cluster.electionTimer != nil) {
-		result := cluster.electionTimer.Stop()
-		if (result == false) {
-			// failed to stop timer
-			return false
-		}
-	}
-	cluster.self.votedFor = nil
-	SetRandomElectionTimer()
-	return true
-}
-
-func SetRandomElectionTimer() {
-	randomTimeout := rand.Float32()*(ELECTION_TIMEOUT_MAX - ELECTION_TIMEOUT_MIN) + ELECTION_TIMEOUT_MIN
-	fmt.Printf("Setting random timeout: %2.2f\n", randomTimeout)
-	cluster.electionTimer = time.AfterFunc(time.Duration(randomTimeout)*time.Millisecond, ElectionTimeout)
-}
-
-/*
- * Asynchronous method that fires when a follower or candidate times out
- * Resets state to begin a new term
- */
-func ElectionTimeout() {
-	cluster.clusterLock.Lock()
-	defer cluster.clusterLock.Unlock()
-	cluster.self.state = UNKNOWN
-	cluster.currentTerm++
-	fmt.Printf("Timed out, starting election in term %d\n", cluster.currentTerm)
-	cluster.self.votedFor = cluster.self
-	cluster.votesCollected = 1
-	for _, member := range cluster.members {
-		if (member != cluster.self) {
-			go SendVoteRequest(member)
-		}
-	}
-	SetRandomElectionTimer()
-}
-
-func PrintClusterInfo(cluster *Cluster) {
-	fmt.Printf("Cluster: %s\n", cluster.name)
-	for index, member := range cluster.members {
-		if (member == cluster.self) {
-			fmt.Printf("Self: ")
-		}
-		fmt.Printf("Member %d: %s:%s\n", index, member.hostname, member.ip)
-	}
-}
 
 /*
  * Returns the Node representation of the local node
@@ -148,10 +143,20 @@ func InitSelf(filename string) * Node {
 	scanner.Scan()
 	line := scanner.Text()
 	splitLine := strings.Split(line, "\t")
-	node.hostname = splitLine[0]
-	node.ip = splitLine[1]
+	node.Hostname = splitLine[0]
+	node.Ip = splitLine[1]
 	node.state = UNKNOWN
 	return node
+}
+
+func PrintClusterInfo(cluster *Cluster) {
+	fmt.Printf("Cluster: %s\n", cluster.Name)
+	for index, member := range cluster.Members {
+		if (member == cluster.Self) {
+			fmt.Printf("Self: ")
+		}
+		fmt.Printf("Member %d: %s:%s\n", index, member.Hostname, member.Ip)
+	}
 }
 
 /*
@@ -171,21 +176,21 @@ func InitCluster(filename string, self * Node) * Cluster {
 	
 	scanner := bufio.NewScanner(file)
 	scanner.Scan()
-	cluster.name = scanner.Text()
+	cluster.Name = scanner.Text()
 	scanner.Scan()
 	numNodes, _ := strconv.Atoi(scanner.Text())
-	cluster.members = make([]*Node, numNodes)
+	cluster.Members = make([]*Node, numNodes)
 	// scan line-by-line, nodes are of the form [hostname]\t[i]\n
 	onIndex := 0
 	for scanner.Scan() {
 		line := scanner.Text()
 		splitLine := strings.Split(line, "\t")
-		if (splitLine[0] == self.hostname) {
-			cluster.members[onIndex] = self
-			cluster.self = self
+		if (splitLine[0] == self.Hostname) {
+			cluster.Members[onIndex] = self
+			cluster.Self = self
 		} else {
-			node := &Node{ splitLine[0], splitLine[1], time.Time{}, UNKNOWN, nil }
-			cluster.members[onIndex] = node
+			node := &Node{ splitLine[0], splitLine[1], 0, 0, UNKNOWN, &sync.RWMutex{} }
+			cluster.Members[onIndex] = node
 		}
 		
 		onIndex++
@@ -195,97 +200,9 @@ func InitCluster(filename string, self * Node) * Cluster {
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
-	cluster.currentTerm = 0
-	cluster.clusterLock = &sync.Mutex{}
+	cluster.CurrentTerm = 0
+	cluster.clusterLock = &sync.RWMutex{}
 	return cluster
-}
-
-func HandleVoteRequest(vr RequestVote) {
-	m := &Message{}
-	m.MessageType = "RequestVoteResponse"
-	sender := GetNodeByHostname(vr.Id)
-	cluster.clusterLock.Lock()
-	defer cluster.clusterLock.Unlock()
-	if (vr.Term > cluster.currentTerm) {
-		cluster.currentTerm = vr.Term;
-		ResetElectionTimer(cluster)
-		cluster.self.state = MEMBER
-	}
-	// accept vote
-	if (vr.Term >= cluster.currentTerm && (cluster.self.votedFor == nil || cluster.self.votedFor == sender)) {
-		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
-		cluster.currentTerm = vr.Term
-		cluster.self.votedFor = sender
-		cluster.leader = sender
-		cluster.self.state = MEMBER
-	} else {
-		m.RequestVoteResponse = RequestVoteResponse{ cluster.currentTerm, false }
-	}
-	targetNode := GetNodeByHostname(vr.Id)
-	if (targetNode == nil) {
-		// handle failure
-		fmt.Printf("No target node found!");
-		return
-	}
-	go SendVoteRequestResponse(m, targetNode);
-}
-
-func GetNodeByHostname(hostname string) *Node {
-	// TODO: set up a hash table
-	for _, member := range cluster.members {
-		if (member.hostname == hostname) {
-			return member
-		}
-	}
-	return nil
-}
-
-/*
- * Sends a heartbeat to each of the nodes in the cluster
- */ 
-func Heartbeat() {
-	cluster.clusterLock.Lock()
-	defer cluster.clusterLock.Unlock()
-	for _, member := range cluster.members {
-		if (member != cluster.self) {
-			m := &Message{}
-			m.MessageType = "Heartbeat"
-			m.AppendRPC = AppendEntries{ cluster.currentTerm }
-			conn, err := net.Dial("tcp", member.ip + ":" + CLUSTER_PORT)
-			if err != nil {
-				//log.Fatal("Connection error", err)
-				fmt.Printf("Connection error attempting to contact %s in Heartbeat\n", member.ip)
-				continue
-			}
-			encoder := gob.NewEncoder(conn)
-			err = encoder.Encode(m)
-			if (err != nil) {
-				fmt.Printf("Encode error attempting to send Heartbeat to %s\n", member.ip)
-				//log.Fatal("encode error:", err)
-			} else {
-				fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, member);
-			}
-			conn.Close()
-		}
-	}
-	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
-}
-
-func HandleVoteResponse(vr RequestVoteResponse) {
-	if (vr.VoteGranted == true) {
-		cluster.clusterLock.Lock()
-		cluster.clusterLock.Unlock()
-		if (cluster.self.state != LEADER) {
-			cluster.votesCollected++
-			if (cluster.votesCollected > (len(cluster.members) / 2)) {
-				fmt.Printf("Won election\n");
-				cluster.electionTimer.Stop()
-				cluster.leader = cluster.self
-				cluster.self.state = LEADER
-				go Heartbeat()
-			}
-		}
-	} 
 }
 
 /*
@@ -317,9 +234,13 @@ func dispatchMessage(message *Message) {
 		HandleVoteRequest(message.RequestVote)
 	case "RequestVoteResponse":
 		HandleVoteResponse(message.RequestVoteResponse)			
-	case "Heartbeat":
-		cluster.currentTerm = message.AppendRPC.Term
-		ResetElectionTimer(cluster)
+	case "AppendEntries":
+		HandleAppendEntries(message.AppendRPC)
+	case "AppendEntriesResponse":
+		HandleAppendEntriesResponse(message.AppendRPCResponse)
+	/*case "Heartbeat":
+		cluster.CurrentTerm = message.AppendRPC.Term
+		ResetElectionTimer(cluster)*/
 	default:
 		fmt.Printf("Unimplemented message type; resetting election timeout\n");
 		result := ResetElectionTimer(cluster)
@@ -340,44 +261,23 @@ func ParseMessage(conn net.Conn) *Message {
 	return m
 }
 
-func SendVoteRequest(target *Node) {
-	m := &Message{}
-	m.RequestVote = RequestVote{ cluster.currentTerm, cluster.self.hostname, 0 }
-	m.MessageType = "RequestVote"
-	fmt.Printf("Dialing %s\n", target.ip)
-	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
-	if err != nil {
-		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.ip)
-		//log.Fatal("Connection error", err)
-		return
+func GetNodeByHostname(hostname string) *Node {
+	// TODO: set up a hash table
+	for _, member := range cluster.Members {
+		if (member.Hostname == hostname) {
+			return member
+		}
 	}
-	defer conn.Close()
-	fmt.Printf("Encoding message to %s\n", target.ip)
-	encoder := gob.NewEncoder(conn)
-	err = encoder.Encode(m)
-	if (err != nil) {
-		fmt.Printf("Encode error attempting to contact %s in SendVoteRequest\n", target.ip)
-		//log.Fatal("encode error:", err)
-	} else {
-		fmt.Printf(time.Now().String() + " Sent message: %+v to %+v\n", m, target)
-	}
+	return nil
 }
 
-func SendVoteRequestResponse(m *Message, target *Node) {
-	conn, err := net.Dial("tcp", target.ip + ":" + CLUSTER_PORT)
-	if err != nil {
-		//log.Fatal("Connection error", err)
-		fmt.Printf("Connection error attempting to contact %s in HandleVoteRequest\n", target.ip)
-		return
+func GetMemberByIndex(target *Node) int {
+	// TODO: set up hash table
+	for i, member := range cluster.Members {
+		if (member == target) {
+			return i
+		}
 	}
-	encoder := gob.NewEncoder(conn)
-	err = encoder.Encode(m)
-	if (err != nil) {
-		fmt.Printf("Encode error attempting to respond to %s in HandleVoteRequest\n", target.ip)
-		//log.Fatal("encode error:", err)
-	} else {
-		fmt.Printf(time.Now().String() + " Sent message: %+v to: %+v\n", m, target);
-	}
-	conn.Close()
+	return -1
 }
 
