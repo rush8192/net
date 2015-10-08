@@ -61,26 +61,28 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 		fmt.Printf("Connection error attempting to contact %s while sending AE RPC\n", member.Ip)
 		return
 	}
+	listenKey := GetAppendResponseListenKey(rpc, member)
+	if (success != nil && needListen) {
+		cluster.rpcLock.Lock()
+		fmt.Printf("Setting callback channel at %s\n", listenKey)
+		cluster.oustandingRPC[listenKey] = success
+		cluster.rpcLock.Unlock()
+	}
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(rpc)
 	if (err != nil) {
 		if (success != nil) {
 			success <- false
-			needListen = false
 		}
+		cluster.rpcLock.Lock()
+		delete(cluster.oustandingRPC, listenKey)
+		cluster.rpcLock.Unlock()
 		fmt.Printf("Encode error attempting to send AppendEntries to %s\n", member.Ip)
 		
 	} else {
 		fmt.Printf(time.Now().String() + " Sent AppendEntries: %+v to %+v\n", rpc, member);
 	}
 	conn.Close()
-	if (success != nil && needListen) {
-		cluster.rpcLock.Lock()
-		listenKey := GetAppendResponseListenKey(rpc, member)
-		fmt.Printf("Setting callback channel at %s\n", listenKey)
-		cluster.oustandingRPC[listenKey] = success
-		cluster.rpcLock.Unlock()
-	}
 }
 
 func HandleAppendEntriesResponse(response AppendEntriesResponse) {
