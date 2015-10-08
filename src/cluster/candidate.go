@@ -22,7 +22,9 @@ func SendVoteRequest(target *Node, retry bool) {
 		//log.Fatal("Connection error", err)
 		if (retry) {
 			time.Sleep((3*ELECTION_TIMEOUT_MIN/4)*time.Millisecond)
-			SendVoteRequest(target, false)
+			if (cluster.Self.state == UNKNOWN) { 
+				SendVoteRequest(target, false)
+			}
 		}
 		return
 	}
@@ -66,7 +68,7 @@ func SetPostElectionState() {
 			member.state = MEMBER
 		}
 	}
-	AppendCommandToLog(&Command{})
+	go AppendCommandToLog(&Command{})
 }
 
 func ResetElectionTimer(cluster * Cluster) bool {

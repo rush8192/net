@@ -32,7 +32,7 @@ const REDIRECT = "REDIRECT" /* Non-participant in cluster */
 // Timing constants (in ms)
 const HEARTBEAT_INTERVAL = 500
 const ELECTION_TIMEOUT_MIN = 4000
-const ELECTION_TIMEOUT_MAX = 5000
+const ELECTION_TIMEOUT_MAX = 6000
 
 /*
  * Represents an active cluster
