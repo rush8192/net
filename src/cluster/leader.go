@@ -62,6 +62,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 	if (success != nil && needListen) {
 		cluster.clusterLock.Lock()
 		listenKey := GetAppendResponseListenKey(rpc, member)
+		fmt.Printf("Setting callback channel at %s\n", listenKey)
 		cluster.oustandingRPC[listenKey] = success
 		cluster.clusterLock.Unlock()
 	}
@@ -69,11 +70,13 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 
 func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 	respondKey := GetAppendResponseKey(response.Id, response.PrevLogIndex)
+	fmt.Printf("Checking callback channel at %s\n", respondKey)
 	channel, ok := cluster.oustandingRPC[respondKey]
 	if (!ok || response.Id == "") {
 		//drop message; no client waiting on outcome
 		return
 	}
+	fmt.Printf("Found channel, sending response: %t\n",response.Success)
 	node := GetNodeByHostname(response.Id)
 	node.nodeLock.Lock()
 	defer node.nodeLock.Unlock()

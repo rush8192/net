@@ -55,6 +55,7 @@ func leaderAppendToLog(command *Command) bool {
 	noVotes := 0
 	for {
 		vote := <- votes
+		fmt.Printf("Received vote: %t\n", vote)
 		if (vote) {
 			yesVotes++
 			votesNeeded--
