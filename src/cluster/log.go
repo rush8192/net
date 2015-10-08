@@ -36,7 +36,7 @@ func handleGet(command *Command) {
 		highestConflictingEntry := int64(-1)
 		fmt.Printf("Finding highest conflicting entry\n")
 		for i, entry := range cluster.Log {
-			if (int64(i) < cluster.LastApplied) {
+			if (int64(i) <= cluster.LastApplied) {
 				continue
 			}
 			if (entry.C.Key == command.Key) {

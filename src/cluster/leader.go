@@ -38,6 +38,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 		rpc.MessageType = "Heartbeat"
 		needListen = false
 	}
+	fmt.Printf("%d entries in log; sending append rpc with index %d\n", len(cluster.Log), (member.nextIndex - 1))
 	rpc.AppendRPC = AppendEntries{ 	cluster.CurrentTerm, 
 									nil,
 									cluster.commitIndex,
@@ -112,6 +113,21 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 	cluster.rpcLock.Lock()
 	delete(cluster.oustandingRPC, respondKey)
 	cluster.rpcLock.Unlock()
+}
+
+func SetPostElectionState() {
+	fmt.Printf("Won election\n");
+	cluster.electionTimer.Stop() // can't timeout as leader
+	cluster.Leader = cluster.Self
+	cluster.Self.state = LEADER
+	for _, member := range cluster.Members {
+		if (member != cluster.Self) {
+			member.nextIndex = cluster.LastLogEntry + 1
+			member.matchIndex = 0
+			member.state = MEMBER
+		}
+	}
+	go AppendCommandToLog(&Command{})
 }
 
 func updateCommitStatus() {
