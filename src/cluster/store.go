@@ -6,7 +6,12 @@ import "os"
 
 var DB_DIR string = ".cluster/.db/"
 
+const DEBUG_CLEAR = true
+
 func InitStore() {
+	if (DEBUG_CLEAR_DB) {
+		os.RemoveAll(DB_DIR)
+	}
 	os.MkdirAll(DB_DIR, 0777)
 }
 
