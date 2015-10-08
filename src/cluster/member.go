@@ -40,6 +40,7 @@ func HandleAppendEntries(ae AppendEntries) {
 	} else {
 		fmt.Printf("Accepted append entry request %+v\n", ae);
 		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
+			fmt.Println(cluster.Log)
 			fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log) - 1, ae.PrevLogIndex)
 			cluster.Log = cluster.Log[0 : (ae.PrevLogIndex + 1)]
 		}

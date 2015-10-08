@@ -4,7 +4,7 @@ import "fmt"
 import "time"
 
 type LogEntry struct {
-	C *Command
+	C Command
 	Term int64
 	Timestamp time.Time
 }
@@ -93,7 +93,7 @@ func ApplyToStateMachine(entry LogEntry) bool {
 
 func leaderAppendToLog(command *Command) bool {
 	fmt.Printf("Attempting to commit to own log and get a quorum\n")
-	logEntry := &LogEntry{ command, cluster.CurrentTerm, time.Now() }
+	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
 	if (!AppendToLog(logEntry)) {
 		return false
 	}
