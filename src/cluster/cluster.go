@@ -58,9 +58,11 @@ type Cluster struct {
 	LastLogEntry int64
 	commitIndex int64  // set to 0 on restart
 	
+	// Used to route responses to outstanding rpcs
 	oustandingRPC map[string]chan bool
+	rpcLock *sync.Mutex
 	
-	/* used to synchronize access to cluster */
+	/* used to synchronize access to cluster state */
 	clusterLock *sync.RWMutex
 }
 
@@ -203,6 +205,7 @@ func InitCluster(filename string, self * Node) * Cluster {
 	cluster.Log = append(cluster.Log, LogEntry{})
 	cluster.LastLogEntry = 0
 	cluster.CurrentTerm = 0
+	cluster.rpcLock = &sync.Mutex{}
 	cluster.clusterLock = &sync.RWMutex{}
 	return cluster
 }

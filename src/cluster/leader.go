@@ -60,11 +60,11 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 	}
 	conn.Close()
 	if (success != nil && needListen) {
-		cluster.clusterLock.Lock()
+		cluster.rpcLock.Lock()
 		listenKey := GetAppendResponseListenKey(rpc, member)
 		fmt.Printf("Setting callback channel at %s\n", listenKey)
 		cluster.oustandingRPC[listenKey] = success
-		cluster.clusterLock.Unlock()
+		cluster.rpcLock.Unlock()
 	}
 }
 
@@ -99,9 +99,9 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		go SendAppendRpc(&cluster.Log[response.PrevLogIndex + 1], node, nil)
 		
 	}
-	cluster.clusterLock.Lock()
+	cluster.rpcLock.Lock()
 	delete(cluster.oustandingRPC, respondKey)
-	cluster.clusterLock.Unlock()
+	cluster.rpcLock.Unlock()
 }
 
 func updateCommitStatus() {
