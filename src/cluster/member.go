@@ -33,9 +33,11 @@ func HandleAppendEntries(ae AppendEntries) {
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
 	    fmt.Println(cluster.Log)
 	    fmt.Printf("Denied append entry request %+v\n", ae);
-	    fmt.Printf("Message term %d vs our term %d\n", ae.Term, cluster.CurrentTerm)
-	    fmt.Printf("Last log entry %d vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
-	    fmt.Printf("log entry terms: %d vs %d from msg\n", cluster.Log[ae.PrevLogIndex].Term, ae.PrevLogTerm)
+	    fmt.Printf("Message term %d differs vs our term %d\n", ae.Term, cluster.CurrentTerm)
+	    fmt.Printf("Last log entry %d differs vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
+	    if (cluster.LastLogEntry >= ae.PrevLogIndex) {
+	    	fmt.Printf("log entry terms differ: %d vs %d from msg\n", cluster.Log[ae.PrevLogIndex].Term, ae.PrevLogTerm)
+	    }
 		aer.Success = false
 		cluster.clusterLock.Unlock()
 	} else {
