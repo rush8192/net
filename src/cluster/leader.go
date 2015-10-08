@@ -107,7 +107,7 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		if (node.nextIndex == 0) {
 			node.nextIndex = 1
 		}
-		go SendAppendRpc(&cluster.Log[response.PrevLogIndex + 1], node, nil)
+		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil)
 		
 	}
 	cluster.rpcLock.Lock()
