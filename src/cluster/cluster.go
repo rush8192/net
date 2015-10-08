@@ -89,7 +89,9 @@ type Node struct {
 type RequestVote struct {
 	Term int64
 	Id string
-	LastTerm int64
+	LastLogIndex int64
+	LastLogTerm int64
+	
 }
 
 type RequestVoteResponse struct {

@@ -13,7 +13,8 @@ import (
  */
 func SendVoteRequest(target *Node, retry bool) {
 	m := &Message{}
-	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, 0 }
+	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, cluster.LastLogEntry, 
+								 cluster.Log[cluster.LastLogEntry].Term }
 	m.MessageType = "RequestVote"
 	fmt.Printf("Dialing %s\n", target.Ip)
 	conn, err := net.Dial("tcp", target.Ip + ":" + CLUSTER_PORT)
@@ -82,7 +83,9 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.Self.state = MEMBER
 	}
 	// accept vote
-	if (vr.Term >= cluster.CurrentTerm && (cluster.VotedFor == nil || cluster.VotedFor == sender)) {
+	if (vr.Term >= cluster.CurrentTerm && (cluster.VotedFor == nil || cluster.VotedFor == sender) &&
+			cluster.Log[cluster.LastLogEntry].Term <= vr.LastLogTerm &&
+			cluster.LastLogEntry <=  vr.LastLogIndex) {
 		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
 		cluster.CurrentTerm = vr.Term
 		cluster.VotedFor = sender
