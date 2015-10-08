@@ -14,9 +14,14 @@ func HandleAppendEntries(ae AppendEntries) {
 		return
 	}
 	cluster.clusterLock.Lock()
-	cluster.Log = append(cluster.Log, ae.Entries[0])
+	ResetElectionTimer(cluster)
+	node := GetNodeByHostname(ae.LeaderId)	
+	if (ae.Term > cluster.CurrentTerm) {
+		cluster.CurrentTerm = ae.Term
+		cluster.Self.state = MEMBER
+		cluster.Leader = node
+	}
 	response := &Message{}
-	node := GetNodeByHostname(ae.LeaderId)
 	defer SendAppendEntriesResponse(response, node)
 	response.MessageType = "AppendEntriesResponse"
 	aer := &response.AppendRPCResponse
@@ -39,8 +44,8 @@ func HandleAppendEntries(ae AppendEntries) {
 		if (ae.LeaderCommit > cluster.commitIndex) {
 			cluster.commitIndex = ae.LeaderCommit
 		}
-		cluster.clusterLock.Unlock()
 		aer.Success = AppendToLog(&ae.Entries[0])
+		cluster.clusterLock.Unlock()
 	}
 }
 

@@ -10,13 +10,13 @@ type LogEntry struct {
 }
 
 func AppendCommandToLog(command *Command) {
+	fmt.Printf("Attempting to append command %+v to log\n", command)
 	cluster.clusterLock.Lock()
 	defer cluster.clusterLock.Unlock()
+	fmt.Printf("Got cluster lock\n")
 	if (command.CType == GET) {
 		handleGet(command)
 	} else if (command.CType == COMMIT) {
-	
-	} else if (command.CType == NOOP) {
 	
 	} else {
 		if (cluster.Self == cluster.Leader) {
@@ -37,10 +37,12 @@ func handleGet(command *Command) {
 }
 
 func leaderAppendToLog(command *Command) bool {
+	fmt.Printf("Attempting to commit to own log and get a quorum\n")
 	logEntry := &LogEntry{ command, cluster.CurrentTerm, time.Now() }
 	if (!AppendToLog(logEntry)) {
 		return false
 	}
+	fmt.Printf("Committed to own log\n")
 	votes := make(chan bool, len(cluster.Members) - 1)
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
@@ -48,6 +50,7 @@ func leaderAppendToLog(command *Command) bool {
 			go SendAppendRpc(logEntry, member, votes)
 		}
 	}
+	fmt.Printf("Waiting for responses \n")
 	yesVotes := 1 // ourself
 	noVotes := 0
 	for {
@@ -75,8 +78,6 @@ func SaveStateToFile() {
 }
 
 func AppendToLog(entry *LogEntry) bool {
-	cluster.clusterLock.Lock()
-	defer cluster.clusterLock.Unlock()
 	cluster.Log = append(cluster.Log, *entry)
 	cluster.LastLogEntry++
 	return CommitLog()
@@ -87,5 +88,5 @@ func followerAppendToLog(command *Command) {
 }
 
 func CommitLog() bool {
-	return false
+	return true
 }
