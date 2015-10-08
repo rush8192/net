@@ -93,8 +93,8 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 	defer node.nodeLock.Unlock()
 	if (response.Success) {
 		channel <- true
-		if (response.NewLogIndex > node.nextIndex) {
-			node.nextIndex = response.NewLogIndex
+		if (response.NewLogIndex + 1 > node.nextIndex) {
+			node.nextIndex = response.NewLogIndex + 1
 		}
 		if (response.NewLogIndex > node.matchIndex) {
 			node.matchIndex = response.NewLogIndex
