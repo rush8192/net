@@ -15,10 +15,6 @@ var clusterResponseByCommand map[int64]chan *Command = make(map[int64]chan *Comm
 
 var pipeName string
 
-type Registration struct {
-	Pipename string
-}
-
 func getReadPipeName(pipeBase string, isClient bool) string {
 	if (isClient) { 
 		return pipeBase + "r"
@@ -34,6 +30,10 @@ func getWritePipeName(pipeBase string, isClient bool) string {
 		return pipeBase + "r"
 	}
 } 
+
+type Registration struct {
+	Pipename string
+}
 
 func InitClient(pipename string) {
 	pipeName = pipename
@@ -182,6 +182,7 @@ func ListenForClients(pipename string) {
 	} else {
 		syscall.Mknod(pipename, syscall.S_IFIFO|0666, 0)
 	}
+	servedClients := make(map[string]bool)
 	for {
 		fmt.Printf("About to open pipe %s for read\n", pipename)
 		readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
@@ -201,7 +202,10 @@ func ListenForClients(pipename string) {
 		}
 		
 		fmt.Printf("Need to open pipe for reading client commands: %+v\n", msg)
-		go serveClient(msg.Pipename)
+		if (!servedClients[msg.Pipename]) {
+			go serveClient(msg.Pipename)
+		}
+		servedClients[msg.Pipename] = true
 	}
 }
 

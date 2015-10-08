@@ -15,7 +15,11 @@ func Heartbeat() {
 	defer cluster.clusterLock.RUnlock()
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendAppendRpc(nil, member, nil)
+			if (member.nextIndex != cluster.LastLogEntry + 1) {
+				go SendAppendRpc(&cluster.Log[member.nextIndex], member, nil)
+			} else {
+				go SendAppendRpc(nil, member, nil)
+			}
 		}
 	}
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
@@ -83,16 +87,19 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 	respondKey := GetAppendResponseKey(response.Id, response.PrevLogIndex)
 	fmt.Printf("Checking callback channel at %s\n", respondKey)
 	channel, ok := cluster.oustandingRPC[respondKey]
-	if (!ok || response.Id == "") {
-		//drop message; no client waiting on outcome
+	if (response.Id == "") {
 		return
 	}
-	fmt.Printf("Found channel, sending response: %t\n",response.Success)
+	if (ok) {
+		fmt.Printf("Found channel, sending response: %t\n",response.Success)
+	}
 	node := GetNodeByHostname(response.Id)
 	node.nodeLock.Lock()
 	defer node.nodeLock.Unlock()
 	if (response.Success) {
-		channel <- true
+		if (ok) {
+			channel <- true
+		}
 		if (response.NewLogIndex + 1 > node.nextIndex) {
 			node.nextIndex = response.NewLogIndex + 1
 		}
@@ -102,7 +109,9 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		updateCommitStatus()
 	} else {
 		// retry command
-		channel <- false
+		if (ok) {
+			channel <- false
+		}
 		node.nextIndex--
 		if (node.nextIndex == 0) {
 			node.nextIndex = 1
@@ -110,9 +119,11 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil)
 		
 	}
-	cluster.rpcLock.Lock()
-	delete(cluster.oustandingRPC, respondKey)
-	cluster.rpcLock.Unlock()
+	if (ok) {
+		cluster.rpcLock.Lock()
+		delete(cluster.oustandingRPC, respondKey)
+		cluster.rpcLock.Unlock()
+	}
 }
 
 func SetPostElectionState() {
