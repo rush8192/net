@@ -22,7 +22,6 @@ func HandleAppendEntries(ae AppendEntries) {
 		cluster.Leader = node
 	}
 	response := &Message{}
-	defer SendAppendEntriesResponse(response, node)
 	response.MessageType = "AppendEntriesResponse"
 	aer := &response.AppendRPCResponse
 	aer.Term = cluster.CurrentTerm
@@ -30,16 +29,19 @@ func HandleAppendEntries(ae AppendEntries) {
 	aer.Id = cluster.Self.Hostname
 	aer.MemberLogIndex = cluster.LastLogEntry
 	if (ae.Term < cluster.CurrentTerm ||
-	     	cluster.LastLogEntry >= ae.PrevLogIndex ||
+	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
 	    fmt.Printf("Denied append entry request %+v\n", ae);
+	    fmt.Printf("Message term $d vs our term %d\n", ae.Term, cluster.CurrentTerm)
+	    fmt.Printf("Last log entry %d vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
+	    fmt.Printf("log entry terms: %d vs %d from msg\n", cluster.Log[ae.PrevLogIndex].Term, ae.PrevLogTerm)
 		aer.Success = false
 		cluster.clusterLock.Unlock()
 	} else {
 		fmt.Printf("Accepted append entry request %+v\n", ae);
-		if (int64(len(cluster.Log)) > ae.PrevLogIndex) {
+		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
 			fmt.Printf("Reducing log size\n")
-			cluster.Log = cluster.Log[0 : ae.PrevLogIndex]
+			cluster.Log = cluster.Log[0 : (ae.PrevLogIndex + 1)]
 		}
 		if (ae.LeaderCommit > cluster.commitIndex) {
 			cluster.commitIndex = ae.LeaderCommit
@@ -47,6 +49,7 @@ func HandleAppendEntries(ae AppendEntries) {
 		aer.Success = AppendToLog(&ae.Entries[0])
 		cluster.clusterLock.Unlock()
 	}
+	SendAppendEntriesResponse(response, node)
 }
 
 func SendAppendEntriesResponse(rpc *Message, target *Node) {
