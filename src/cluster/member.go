@@ -46,6 +46,7 @@ func HandleAppendEntries(ae AppendEntries) {
 			fmt.Println(cluster.Log)
 			fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
 			cluster.Log = cluster.Log[0 : (ae.PrevLogIndex + 1)]
+			cluster.LastLogEntry = ae.PrevLogIndex
 		}
 		if (ae.LeaderCommit > cluster.commitIndex) {
 			cluster.commitIndex = ae.LeaderCommit
