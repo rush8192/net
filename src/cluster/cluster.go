@@ -204,6 +204,7 @@ func InitCluster(filename string, self * Node) * Cluster {
 	}
 	cluster.Log = append(cluster.Log, LogEntry{})
 	cluster.LastLogEntry = 0
+	cluster.LastApplied = 0
 	cluster.CurrentTerm = 0
 	cluster.rpcLock = &sync.Mutex{}
 	cluster.oustandingRPC = make(map[string] chan bool)

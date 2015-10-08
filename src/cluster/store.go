@@ -2,6 +2,7 @@ package cluster
 
 import "fmt"
 import "io/ioutil"
+import "os"
 
 var DB_DIR string = ".cluster/.db/"
 
@@ -21,5 +22,14 @@ func StorePut(key string, value []byte) bool {
 		return false
 	}
 	return true
+}
+
+func StoreDelete(key string) bool {
+	os.Remove(DB_DIR + key)
+	if _, err := os.Stat(DB_DIR + key); err == nil {
+		return false
+	} else {
+		return true
+	}
 }
 

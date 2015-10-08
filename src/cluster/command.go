@@ -2,10 +2,12 @@ package cluster
 
 const (
 	NOOP = iota
-	GET
 	PUT
 	UPDATE
 	DELETE
+	
+	// these command types don't get stored in log
+	GET
 	COMMIT
 	FAILED
 )

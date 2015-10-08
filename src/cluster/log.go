@@ -32,8 +32,60 @@ func AppendCommandToLog(command *Command) {
 
 func handleGet(command *Command) {
 	if (cluster.Self.state == LEADER || cluster.Self.state == MEMBER) {
-		command.Value = StoreGet(command.Key)
+		highestConflictingEntry := int64(-1)
+		for i, entry := range cluster.Log {
+			if (int64(i) < cluster.LastApplied) {
+				continue
+			}
+			if (entry.C.Key == command.Key) {
+				highestConflictingEntry = int64(i)
+				fmt.Printf("Found entry in log with key from GET command\n")
+			}
+		}
+		if (highestConflictingEntry == int64(-1) || 
+				updateStateMachineToLogIndex(highestConflictingEntry)) {
+			command.Value = StoreGet(command.Key)
+		}
+		
 	}
+}
+
+/* Updates the state machine up to the min of (commitIndex, logIndex) 
+ * Must hold cluster lock when calling this method */
+func updateStateMachineToLogIndex(logIndex int64) bool {
+	var appliedEntries int64
+	// keep first no-op entry in log, apply others
+	for appliedEntries = 1; 
+			appliedEntries <= logIndex && appliedEntries <= cluster.commitIndex; 
+			appliedEntries++ {
+		success := ApplyToStateMachine(cluster.Log[appliedEntries])
+		if (!success) {
+			break
+		}
+	}
+	appliedEntries--
+	fmt.Printf("Successfully applied %d log entries to state machine\n", appliedEntries)
+	return true
+}
+
+func ApplyToStateMachine(entry LogEntry) bool {
+	var success bool
+	switch entry.C.CType {
+	case NOOP: // do nothing
+	case PUT:
+		fallthrough
+	case UPDATE:
+		success = StorePut(entry.C.Key, entry.C.Value)
+	case DELETE:
+		success = StoreDelete(entry.C.Key)
+	default:
+		fmt.Printf("Invalid command type in log %d", entry.C.CType)
+	}
+	if (success) {
+		cluster.LastApplied++
+		success = SaveStateToFile()
+	}
+	return success
 }
 
 func leaderAppendToLog(command *Command) bool {
@@ -75,8 +127,8 @@ func leaderAppendToLog(command *Command) bool {
 	}
 }
 
-func SaveStateToFile() {
-	
+func SaveStateToFile() bool {
+	return true
 }
 
 func AppendToLog(entry *LogEntry) bool {
