@@ -32,7 +32,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 									nil,
 									cluster.commitIndex,
 									(member.nextIndex - 1),
-									cluster.Log[len(cluster.Log) - 1].Term,
+									cluster.Log[(member.nextIndex - 1)].Term,
 									cluster.Self.Hostname  }
 	if (entry != nil) {
 		rpc.AppendRPC.Entries = append(make([]LogEntry, 1),*entry)
