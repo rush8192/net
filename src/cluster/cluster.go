@@ -244,9 +244,9 @@ func dispatchMessage(message *Message) {
 		HandleAppendEntries(message.AppendRPC)
 	case "AppendEntriesResponse":
 		HandleAppendEntriesResponse(message.AppendRPCResponse)
-	/*case "Heartbeat":
+	case "Heartbeat":
 		cluster.CurrentTerm = message.AppendRPC.Term
-		ResetElectionTimer(cluster)*/
+		ResetElectionTimer(cluster)
 	default:
 		fmt.Printf("Unimplemented message type; resetting election timeout\n");
 		result := ResetElectionTimer(cluster)

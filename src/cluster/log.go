@@ -50,6 +50,7 @@ func leaderAppendToLog(command *Command) bool {
 			go SendAppendRpc(logEntry, member, votes)
 		}
 	}
+	ResetHeartbeatTimer()
 	fmt.Printf("Waiting for responses \n")
 	yesVotes := 1 // ourself
 	noVotes := 0

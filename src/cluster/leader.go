@@ -21,13 +21,23 @@ func Heartbeat() {
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
 }
 
+func ResetHeartbeatTimer() {
+	cluster.electionTimer.Stop()
+	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
+}
+
 /*
  * Leader: Send AppendEntries Rpc
  */
 func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 	var needListen bool = true
 	rpc := &Message{}
-	rpc.MessageType = "AppendEntries"
+	if (entry != nil) {
+		rpc.MessageType = "AppendEntries"
+	} else {
+		rpc.MessageType = "Heartbeat"
+		needListen = false
+	}
 	rpc.AppendRPC = AppendEntries{ 	cluster.CurrentTerm, 
 									nil,
 									cluster.commitIndex,
@@ -43,7 +53,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 			success <- false
 			needListen = false
 		}
-		fmt.Printf("Connection error attempting to contact %s in Heartbeat\n", member.Ip)
+		fmt.Printf("Connection error attempting to contact %s while sending AE RPC\n", member.Ip)
 		return
 	}
 	encoder := gob.NewEncoder(conn)
