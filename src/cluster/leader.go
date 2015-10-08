@@ -46,7 +46,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 									cluster.Log[(member.nextIndex - 1)].Term,
 									cluster.Self.Hostname  }
 	if (entry != nil) {
-		rpc.AppendRPC.Entries = append(make([]LogEntry, 1),*entry)
+		rpc.AppendRPC.Entries = append(make([]LogEntry, 0, 1),*entry)
 	}
 	conn, err := net.Dial("tcp", member.Ip + ":" + CLUSTER_PORT)
 	if err != nil {
