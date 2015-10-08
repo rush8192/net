@@ -25,8 +25,8 @@ func HandleAppendEntries(ae AppendEntries) {
 	aer.Id = cluster.Self.Hostname
 	aer.MemberLogIndex = cluster.Self.nextIndex - 1
 	if (ae.Term < cluster.CurrentTerm ||
-	    (cluster.Self.nextIndex - 1) != ae.PrevLogIndex ||
-	     cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
+	     	cluster.LastLogEntry >= ae.PrevLogIndex ||
+	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
 	    fmt.Printf("Denied append entry request %+v\n", ae);
 		aer.Success = false
 		cluster.clusterLock.Unlock()

@@ -38,15 +38,15 @@ func handleGet(command *Command) {
 
 func leaderAppendToLog(command *Command) bool {
 	logEntry := &LogEntry{ command, cluster.CurrentTerm, time.Now() }
+	if (!AppendToLog(logEntry)) {
+		return false
+	}
 	votes := make(chan bool, len(cluster.Members) - 1)
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			go SendAppendRpc(logEntry, member, votes)
 		}
-	}
-	if (!AppendToLog(logEntry)) {
-		return false
 	}
 	yesVotes := 1 // ourself
 	noVotes := 0
@@ -60,6 +60,7 @@ func leaderAppendToLog(command *Command) bool {
 		}
 		if (votesNeeded == 0) {
 			fmt.Printf("Successfully committed, append success\n")
+			cluster.commitIndex = cluster.LastLogEntry
 			return true
 		}
 		if (votesNeeded > (len(cluster.Members) - noVotes)) {

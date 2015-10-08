@@ -200,6 +200,8 @@ func InitCluster(filename string, self * Node) * Cluster {
 	if err := scanner.Err(); err != nil {
 		log.Fatal(err)
 	}
+	cluster.Log = append(cluster.Log, LogEntry{})
+	cluster.LastLogEntry = 0
 	cluster.CurrentTerm = 0
 	cluster.clusterLock = &sync.RWMutex{}
 	return cluster

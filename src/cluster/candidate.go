@@ -62,7 +62,7 @@ func SetPostElectionState() {
 			member.state = MEMBER
 		}
 	}
-	Heartbeat()
+	AppendCommandToLog(&Command{})
 }
 
 func ResetElectionTimer(cluster * Cluster) bool {
