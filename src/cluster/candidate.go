@@ -11,7 +11,7 @@ import (
 /*
  * Candidate: send vote request
  */
-func SendVoteRequest(target *Node) {
+func SendVoteRequest(target *Node, retry bool) {
 	m := &Message{}
 	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, 0 }
 	m.MessageType = "RequestVote"
@@ -20,6 +20,10 @@ func SendVoteRequest(target *Node) {
 	if err != nil {
 		fmt.Printf("Connection error attempting to contact %s in SendVoteRequest\n", target.Ip)
 		//log.Fatal("Connection error", err)
+		if (retry) {
+			time.Sleep((3*ELECTION_TIMEOUT_MIN/4)*time.Millisecond)
+			SendVoteRequest(target, false)
+		}
 		return
 	}
 	defer conn.Close()
@@ -147,7 +151,7 @@ func ElectionTimeout() {
 	cluster.votesCollected = 1
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendVoteRequest(member)
+			go SendVoteRequest(member, true)
 		}
 	}
 	SetRandomElectionTimer()
