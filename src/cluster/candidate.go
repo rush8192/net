@@ -13,6 +13,7 @@ import (
  */
 func SendVoteRequest(target *Node, retry bool) {
 	m := &Message{}
+	fmt.Println("Cluster log has length %d; last entry is %d\n", cluster.LastLogEntry, len(cluster.Log))
 	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, cluster.LastLogEntry, 
 								 cluster.Log[cluster.LastLogEntry].Term }
 	m.MessageType = "RequestVote"
