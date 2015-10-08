@@ -6,7 +6,7 @@ import "os"
 
 var DB_DIR string = ".cluster/.db/"
 
-const DEBUG_CLEAR = true
+const DEBUG_CLEAR_DB = true
 
 func InitStore() {
 	if (DEBUG_CLEAR_DB) {
