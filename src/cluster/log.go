@@ -60,6 +60,8 @@ func updateStateMachineToLogIndex(logIndex int64) bool {
 	for appliedEntries = 1; 
 			appliedEntries <= logIndex && appliedEntries <= cluster.commitIndex; 
 			appliedEntries++ {
+		fmt.Println(cluster.Log)
+		fmt.Printf("Applying command at index %d\n", appliedEntries)
 		success := ApplyToStateMachine(cluster.Log[appliedEntries])
 		if (!success) {
 			fmt.Printf("Failed to apply entries to state machine\n")
@@ -75,11 +77,14 @@ func ApplyToStateMachine(entry LogEntry) bool {
 	var success bool
 	switch entry.C.CType {
 	case NOOP: // do nothing
+		success = true
 	case PUT:
 		fallthrough
 	case UPDATE:
+		fmt.Printf("Placing value in file for key %s\n", entry.C.Key) 
 		success = StorePut(entry.C.Key, entry.C.Value)
 	case DELETE:
+		fmt.Printf("Deleting file for key %s\n", entry.C.Key) 
 		success = StoreDelete(entry.C.Key)
 	default:
 		fmt.Printf("Invalid command type in log %d", entry.C.CType)
@@ -87,6 +92,8 @@ func ApplyToStateMachine(entry LogEntry) bool {
 	if (success) {
 		cluster.LastApplied++
 		success = SaveStateToFile()
+	} else {
+		fmt.Printf("Failed to apply command for entry %+v\n", entry)
 	}
 	return success
 }

@@ -209,6 +209,7 @@ func InitCluster(filename string, self * Node) * Cluster {
 	cluster.rpcLock = &sync.Mutex{}
 	cluster.oustandingRPC = make(map[string] chan bool)
 	cluster.clusterLock = &sync.RWMutex{}
+	InitStore()
 	return cluster
 }
 

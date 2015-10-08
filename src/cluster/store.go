@@ -6,6 +6,10 @@ import "os"
 
 var DB_DIR string = ".cluster/.db/"
 
+func InitStore() {
+	os.MkdirAll(DB_DIR, 0777)
+}
+
 func StoreGet(key string) []byte {
 	value, err := ioutil.ReadFile(DB_DIR + key)
 	if (err != nil) {
