@@ -13,7 +13,7 @@ import (
  */
 func SendVoteRequest(target *Node, retry bool) {
 	m := &Message{}
-	fmt.Println("Cluster log has length %d; last entry is %d\n", cluster.LastLogEntry, len(cluster.Log))
+	fmt.Printf("Cluster log has length %d last entry is %d\n", len(cluster.Log), cluster.LastLogEntry)
 	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, cluster.LastLogEntry, 
 								 cluster.Log[cluster.LastLogEntry].Term }
 	m.MessageType = "RequestVote"
@@ -84,6 +84,7 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.Self.state = MEMBER
 	}
 	// accept vote
+	fmt.Printf("Cluster log has length %d last entry is %d\n", len(cluster.Log), cluster.LastLogEntry)
 	if (vr.Term >= cluster.CurrentTerm && (cluster.VotedFor == nil || cluster.VotedFor == sender) &&
 			cluster.Log[cluster.LastLogEntry].Term <= vr.LastLogTerm &&
 			cluster.LastLogEntry <=  vr.LastLogIndex) {
