@@ -76,6 +76,7 @@ func HandleVoteRequest(vr RequestVote) {
 	m := &Message{}
 	m.MessageType = "RequestVoteResponse"
 	sender := GetNodeByHostname(vr.Id)
+	fmt.Printf("Got vote request from %s\n", vr.Id)
 	cluster.clusterLock.Lock()
 	defer cluster.clusterLock.Unlock()
 	if (vr.Term > cluster.CurrentTerm) {
@@ -93,8 +94,10 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.CurrentTerm = vr.Term
 		cluster.VotedFor = sender
 		cluster.Leader = sender
+		fmt.Printf("Accepting vote from %s\n", vr.Id)
 		cluster.Self.state = MEMBER
 	} else {
+		fmt.Printf("Rejecting vote request from %s\n", vr.Id)
 		m.RequestVoteResponse = RequestVoteResponse{ cluster.CurrentTerm, false }
 	}
 	targetNode := GetNodeByHostname(vr.Id)
