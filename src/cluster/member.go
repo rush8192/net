@@ -20,6 +20,7 @@ func HandleAppendEntries(ae AppendEntries) {
 		cluster.CurrentTerm = ae.Term
 		cluster.Self.state = MEMBER
 		cluster.Leader = node
+		cluster.VotedFor = nil
 	}
 	response := &Message{}
 	response.MessageType = "AppendEntriesResponse"

@@ -82,6 +82,7 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.CurrentTerm = vr.Term;
 		ResetElectionTimer(cluster)
 		cluster.Self.state = MEMBER
+		cluster.VotedFor = nil
 	}
 	// accept vote
 	fmt.Printf("Cluster log has length %d last entry is %d\n", len(cluster.Log), cluster.LastLogEntry)
