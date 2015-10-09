@@ -30,7 +30,7 @@ const UNKNOWN = "UNKNOWN" /* No contact with leader */
 const REDIRECT = "REDIRECT" /* Non-participant in cluster */
 
 // Timing constants (in ms)
-const HEARTBEAT_INTERVAL = 500
+const HEARTBEAT_INTERVAL = 1000
 const ELECTION_TIMEOUT_MIN = 4000
 const ELECTION_TIMEOUT_MAX = 6000
 
