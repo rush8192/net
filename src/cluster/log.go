@@ -10,8 +10,11 @@ type LogEntry struct {
 	Timestamp time.Time
 }
 
-func AppendCommandToLog(command *Command) {
-	
+/*
+ * Handles a client command by appending it to the log or by
+ * retrieving the value for a GET request key
+ */
+func AppendCommandToLog(command *Command) {	
 	fmt.Printf("Got cluster lock\n")
 	if (command.CType == GET) {
 		fmt.Printf("Handling get request: %+v\n", command)
