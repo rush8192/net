@@ -253,10 +253,7 @@ func dispatchMessage(message *Message) {
 		ResetElectionTimer(cluster)
 	default:
 		fmt.Printf("Unimplemented message type; resetting election timeout\n");
-		result := ResetElectionTimer(cluster)
-		if (result == false) {
-			// failed to reset timer; now a candidate in new term
-		}
+		ResetElectionTimer(cluster)
 	}
 }
 

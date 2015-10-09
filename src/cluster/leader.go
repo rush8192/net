@@ -145,6 +145,60 @@ func SetPostElectionState() {
 	go AppendCommandToLog(&Command{})
 }
 
+func leaderAppendToLog(command *Command) bool {
+	fmt.Printf("Attempting to commit to own log and get a quorum\n")
+	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
+	cluster.clusterLock.Lock()
+	if (!AppendToLog(logEntry)) {
+		cluster.clusterLock.Unlock()
+		return false
+	}
+	fmt.Printf("Committed to own log\n")
+	votes := make(chan bool, len(cluster.Members) - 1)
+	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
+	for _, member := range cluster.Members {
+		if (member != cluster.Self) {
+			go SendAppendRpc(logEntry, member, votes)
+		}
+	}
+	ResetHeartbeatTimer()
+	cluster.clusterLock.Unlock()
+	fmt.Printf("Waiting for responses \n")
+	return QuorumOfResponses(votesNeeded)
+}
+
+/*
+ * Uses a channel to collect AppendEntriesResponses from members of the
+ * cluster; returns true or false once outcome becomes definite, updating
+ * the commitIndex as needed.
+ * TODO: add timeout to return false to client
+ */
+func QuorumOfResponses(votesNeeded int) {
+	yesVotes := 1 // ourself
+	noVotes := 0
+	for {
+		vote := <- votes
+		fmt.Printf("Received vote: %t\n", vote)
+		if (vote) {
+			yesVotes++
+			votesNeeded--
+		} else {
+			noVotes++
+		}
+		if (votesNeeded == 0) {
+			fmt.Printf("Successfully committed, append success\n")
+			cluster.clusterLock.Lock()
+			cluster.commitIndex = cluster.LastLogEntry
+			cluster.clusterLock.Unlock()
+			return true
+		}
+		if (votesNeeded > (len(cluster.Members) - noVotes)) {
+			fmt.Printf("Too many no votes, append fails\n")
+			return false
+		}
+	}
+}
+
 func updateCommitStatus() {
 	// TODO: update commit index
 }

@@ -15,26 +15,14 @@ var clusterResponseByCommand map[int64]chan *Command = make(map[int64]chan *Comm
 
 var pipeName string
 
-func getReadPipeName(pipeBase string, isClient bool) string {
-	if (isClient) { 
-		return pipeBase + "r"
-	} else {
-		return pipeBase + "w"
-	}
-}
-
-func getWritePipeName(pipeBase string, isClient bool) string {
-	if (isClient) {
-		return pipeBase + "w"
-	} else {
-		return pipeBase + "r"
-	}
-} 
-
 type Registration struct {
 	Pipename string
 }
 
+/*
+ * Initializes the client module. After initialization, able to process GET,PUT,
+ * UPDATE, DELETE, and COMMIT commands from a client program
+ */
 func InitClient(pipename string) {
 	pipeName = pipename
 	if _, err := os.Stat(getWritePipeName(pipename, true)); err == nil {
@@ -61,6 +49,10 @@ func InitClient(pipename string) {
     fmt.Printf("Done initializing client\n")
 }
 
+/*
+ * Listens to responses to outstanding client commands, routing them to the 
+ * correct outstanding function
+ */
 func ListenForCommandResponses(pipename string) {
 	if _, err := os.Stat(getReadPipeName(pipename, true)); err == nil {
 		fmt.Printf("write pipe already exists\n")
@@ -249,3 +241,20 @@ func serveClient(pipename string) {
 		}
 	}
 }
+
+
+func getReadPipeName(pipeBase string, isClient bool) string {
+	if (isClient) { 
+		return pipeBase + "r"
+	} else {
+		return pipeBase + "w"
+	}
+}
+
+func getWritePipeName(pipeBase string, isClient bool) string {
+	if (isClient) {
+		return pipeBase + "w"
+	} else {
+		return pipeBase + "r"
+	}
+} 

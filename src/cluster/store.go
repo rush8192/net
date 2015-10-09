@@ -8,6 +8,9 @@ var DB_DIR string = ".cluster/.db/"
 
 const DEBUG_CLEAR_DB = true
 
+/*
+ * Initializes the backing folder used to keep track of present keys/values on disk
+ */
 func InitStore() {
 	if (DEBUG_CLEAR_DB) {
 		os.RemoveAll(DB_DIR)
