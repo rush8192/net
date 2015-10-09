@@ -11,8 +11,7 @@ type LogEntry struct {
 }
 
 func AppendCommandToLog(command *Command) {
-	cluster.clusterLock.Lock()
-	defer cluster.clusterLock.Unlock()
+	cluster.clusterLock.RLock()
 	fmt.Printf("Got cluster lock\n")
 	if (command.CType == GET) {
 		fmt.Printf("Handling get request: %+v\n", command)
@@ -22,10 +21,12 @@ func AppendCommandToLog(command *Command) {
 	} else {
 		fmt.Printf("Attempting to append command %+v to log\n", command)
 		if (cluster.Self == cluster.Leader) {
+			cluster.clusterLock.RUnlock()
 		    if (!leaderAppendToLog(command)) {
 		    	command.CType = FAILED
 		    }
 		} else {
+			cluster.clusterLock.RUnlock()
 			followerAppendToLog(command)
 		}
 	}
@@ -102,7 +103,9 @@ func ApplyToStateMachine(entry LogEntry) bool {
 func leaderAppendToLog(command *Command) bool {
 	fmt.Printf("Attempting to commit to own log and get a quorum\n")
 	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
+	cluster.clusterLock.Lock()
 	if (!AppendToLog(logEntry)) {
+		cluster.clusterLock.Unlock()
 		return false
 	}
 	fmt.Printf("Committed to own log\n")
@@ -114,6 +117,7 @@ func leaderAppendToLog(command *Command) bool {
 		}
 	}
 	ResetHeartbeatTimer()
+	cluster.clusterLock.Unlock()
 	fmt.Printf("Waiting for responses \n")
 	yesVotes := 1 // ourself
 	noVotes := 0
@@ -128,7 +132,9 @@ func leaderAppendToLog(command *Command) bool {
 		}
 		if (votesNeeded == 0) {
 			fmt.Printf("Successfully committed, append success\n")
+			cluster.clusterLock.Lock()
 			cluster.commitIndex = cluster.LastLogEntry
+			cluster.clusterLock.Unlock()
 			return true
 		}
 		if (votesNeeded > (len(cluster.Members) - noVotes)) {

@@ -23,6 +23,7 @@ func Heartbeat() {
 			}
 		}
 	}
+	fmt.Printf("Heartbeat timer reset\n")
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
 }
 
