@@ -16,8 +16,9 @@ func AppendCommandToLog(command *Command) {
 	if (command.CType == GET) {
 		fmt.Printf("Handling get request: %+v\n", command)
 		handleGet(command)
+		cluster.clusterLock.RUnlock()
 	} else if (command.CType == COMMIT) {
-	
+		// not implemented
 	} else {
 		fmt.Printf("Attempting to append command %+v to log\n", command)
 		if (cluster.Self == cluster.Leader) {
