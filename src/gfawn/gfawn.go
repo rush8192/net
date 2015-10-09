@@ -5,13 +5,38 @@ import "cluster"
 import "fmt"
 import "strconv"
 
+const NUM_THREADS = 2
+
+var client *cluster.Client
+
 func main() {
-	cluster.InitClient("gfawn")
-	cluster.Put("cluster_id", []byte("testcluster"))
-	cluster.Put("dollars", []byte("64"))
-	cluster.Delete("dollars")
-	var value string = string(cluster.Get("cluster_id"))
-	fmt.Printf("value for %s: %s\n", "cluster_id", value)
-	dollars, _ := strconv.Atoi(string(cluster.Get("dollars")))
-	fmt.Printf("Dollars: %d\n", dollars)
+	client = cluster.InitClient("gfawn")
+	key := client.Put("cluster_id", []byte("testcluster"))
+	if (key == "") {
+		fmt.Printf("Failed to put cluster id\n")
+		return
+	}
+	responses := make(chan string, NUM_THREADS)
+	for i := 0; i < NUM_THREADS; i++ {
+		num := i
+		go PutAndGet(num, responses)
+	}
+	for i := 0; i < NUM_THREADS; i++ {
+		fmt.Printf("Waiting for %dth response\n", i);
+		response := <- responses
+		fmt.Printf("Thread %s returning %dth\n", response, i)
+	}
+}
+
+func PutAndGet(i int, responses chan string) {
+	resp := client.Put(strconv.Itoa(i), []byte(strconv.Itoa(i)))
+	if (resp == "") {
+		responses <- "fail"
+		return
+	}
+	fmt.Printf("\tSuccessfully PUT %d\n", i)
+	result := string(client.Get(strconv.Itoa(i)))
+	fmt.Printf("\tSuccessful GET %d\n", i)
+	responses <- result
+	fmt.Printf("\tSent %d to channel\n", i)
 }

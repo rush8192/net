@@ -106,6 +106,7 @@ type AppendEntries struct {
 	PrevLogIndex int64
 	PrevLogTerm int64
 	LeaderId string
+	CId int64
 }
 
 type AppendEntriesResponse struct {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"encoding/gob"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -51,9 +52,11 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 									cluster.commitIndex,
 									(member.nextIndex - 1),
 									cluster.Log[(member.nextIndex - 1)].Term,
-									cluster.Self.Hostname  }
+									cluster.Self.Hostname,
+									0  }
 	if (entry != nil) {
 		rpc.AppendRPC.Entries = append(make([]LogEntry, 0, 1),*entry)
+		rpc.AppendRPC.CId = entry.C.CId
 	}
 	conn, err := net.Dial("tcp", member.Ip + ":" + CLUSTER_PORT)
 	if err != nil {
@@ -210,6 +213,6 @@ func GetAppendResponseListenKey(rpc *Message, member *Node) string {
 }
 
 func GetAppendResponseKey (hostname string, logIndex int64) string {
-	return hostname + ":" + string(logIndex)
+	return hostname + ":" + strconv.FormatInt(logIndex, 10)
 }
 

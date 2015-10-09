@@ -4,65 +4,71 @@ import "fmt"
 import "encoding/gob"
 import "log"
 import "os"
+import "sync"
 import "sync/atomic"
 import "syscall"
 import "time"
 
 const REGISTER_PIPE = ".cluster/client.pipe"
 
-var serialCommandId int64 = 0;
-var clusterResponseByCommand map[int64]chan *Command = make(map[int64]chan *Command)
-
-var pipeName string
-
 type Registration struct {
-	Pipename string
+	ClientName string
+}
+
+type Client struct {
+	name string
+	pipeLock *sync.Mutex
+	clusterResponseByCommand map[int64]chan *Command
+	cmdRouteLock *sync.RWMutex
+	serialCommandId int64
 }
 
 /*
  * Initializes the client module. After initialization, able to process GET,PUT,
  * UPDATE, DELETE, and COMMIT commands from a client program
  */
-func InitClient(pipename string) {
-	pipeName = pipename
-	if _, err := os.Stat(getWritePipeName(pipename, true)); err == nil {
+func InitClient(clientName string) *Client {
+	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1 }
+	RegisterClient(client)
+    go ListenForCommandResponses(client)
+    time.Sleep(50*time.Millisecond)
+    return client
+}
+
+func RegisterClient(client *Client) {
+	if _, err := os.Stat(getWritePipeName(client.name, true)); err == nil {
 		fmt.Printf("write pipe already exists\n")
 	} else {
-		syscall.Mknod(getWritePipeName(pipename, true), syscall.S_IFIFO|0666, 0)
+		syscall.Mknod(getWritePipeName(client.name, true), syscall.S_IFIFO|0666, 0)
 	}
-	fmt.Printf("Registering client program\n")
 	registerPipe, err := os.OpenFile(REGISTER_PIPE, os.O_WRONLY, 0666) // For write access.
 	if err != nil {
 		fmt.Printf("Could not register client with cluster program (couldnt open %s for write)\n", REGISTER_PIPE)
 		log.Fatal(err)
 	}
-	msg := &Registration{ pipename }
+	msg := &Registration{ client.name }
 	msgEncoder := gob.NewEncoder(registerPipe)
     err = msgEncoder.Encode(msg)
     if (err != nil) {
     	fmt.Printf("Error writing %+v register pipe\n", msg)  
 		log.Fatal(err)
     }
-    fmt.Printf("Starting program to listen for responses to commands\n")
-    go ListenForCommandResponses(pipename)
-    time.Sleep(50*time.Millisecond)
-    fmt.Printf("Done initializing client\n")
 }
 
 /*
  * Listens to responses to outstanding client commands, routing them to the 
  * correct outstanding function
  */
-func ListenForCommandResponses(pipename string) {
-	if _, err := os.Stat(getReadPipeName(pipename, true)); err == nil {
+func ListenForCommandResponses(client *Client) {
+	if _, err := os.Stat(getReadPipeName(client.name, true)); err == nil {
 		fmt.Printf("write pipe already exists\n")
 	} else {
-		syscall.Mknod(getReadPipeName(pipename,true), syscall.S_IFIFO|0666, 0)
+		syscall.Mknod(getReadPipeName(client.name, true), syscall.S_IFIFO|0666, 0)
 	}
 	for {
-		readPipe, err := os.OpenFile(getReadPipeName(pipename,true), os.O_RDONLY, 0666)
+		readPipe, err := os.OpenFile(getReadPipeName(client.name, true), os.O_RDONLY, 0666)
 		if err != nil {
-			fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
+			fmt.Printf("Could not open pipe %s for read)\n", getReadPipeName(client.name, true))
 			log.Fatal(err)
 		}
 		defer readPipe.Close()
@@ -76,67 +82,78 @@ func ListenForCommandResponses(pipename string) {
 			continue
 		}
 		fmt.Printf("Got response: %+v\n", msg)
-		go routeCommandResponse(msg)
+		go routeCommandResponse(client, msg)
 	}
 }
 
-func routeCommandResponse(response * Command) {
+func routeCommandResponse(client *Client, response * Command) {
 	cmdId := response.CId
 	if (cmdId == 0) {
 		fmt.Printf("Invalid command ID: %d\n", cmdId)
 		return 
 	}
+	client.cmdRouteLock.RLock()
 	switch response.CType {
 	case GET:
 		fmt.Printf("Got response to get command: %s\n", response.Value)
-		clusterResponseByCommand[cmdId] <- response
+		client.clusterResponseByCommand[cmdId] <- response
 	case PUT:
 		fmt.Printf("Got response to put command: %s\n", response.Key)
-		clusterResponseByCommand[cmdId] <- response
+		client.clusterResponseByCommand[cmdId] <- response
+		fmt.Printf("Sent response to channel %d\n", cmdId)
 	case UPDATE:
 		fmt.Printf("Got response to update command: %s\n", response.Key)
-		clusterResponseByCommand[cmdId] <- response
+		client.clusterResponseByCommand[cmdId] <- response
 	case DELETE:
 		fmt.Printf("Got response to delete command: %s\n", response.Key)
-		clusterResponseByCommand[cmdId] <- response
+		client.clusterResponseByCommand[cmdId] <- response
 	default:
 		fmt.Printf("Unrecognized command type %d\n", response.CType)
 	}
+	client.cmdRouteLock.RUnlock()
+	client.cmdRouteLock.Lock()
+	delete(client.clusterResponseByCommand, cmdId)
+	client.cmdRouteLock.Unlock()
 }
 
-func Put(key string, value []byte) string {
-	fmt.Printf("Opening write pipe %s\n", getWritePipeName(pipeName, true))
-	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+func (client *Client) Put(key string, value []byte) string {
+	fmt.Printf("Opening write pipe %s to put %s\n", getWritePipeName(client.name, true), key)
+	client.pipeLock.Lock()
+	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
 	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
 		log.Fatal(err)
 	}
-	fmt.Printf("Starting PUT command\n")
+	fmt.Printf("Starting PUT command for %s\n", key)
 	putCmd := &Command{}
 	putCmd.CType = PUT
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	putCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	clusterResponseByCommand[putCmd.CId] = responseChannel
-	
+	client.cmdRouteLock.Lock()
+	fmt.Printf("Listening for PUT response for %s at channel %d\n", key, putCmd.CId)
+	client.clusterResponseByCommand[putCmd.CId] = responseChannel
+	client.cmdRouteLock.Unlock()
 	cmdEncoder := gob.NewEncoder(writePipe)
     err = cmdEncoder.Encode(putCmd)
 	if (err != nil) {
-    	fmt.Printf("Error writing %+v command pipe\n", putCmd)  
+    	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
 		log.Fatal(err)
     }
     writePipe.Close()
+    client.pipeLock.Unlock()
     fmt.Printf("Waiting for PUT response\n");
     return string((<- responseChannel).Key)
 }
 
-func Update(key string, value []byte) string {
-	fmt.Printf("Opening write pipe %s\n", getWritePipeName(pipeName, true))
-	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+func (client *Client) Update(key string, value []byte) string {
+	fmt.Printf("Opening write pipe %s\n", getWritePipeName(client.name, true))
+	client.pipeLock.Lock()
+	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
 	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
 		log.Fatal(err)
 	}
 	fmt.Printf("Starting UPDATE command\n")
@@ -144,37 +161,41 @@ func Update(key string, value []byte) string {
 	putCmd.CType = UPDATE
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	putCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	clusterResponseByCommand[putCmd.CId] = responseChannel
-	
+	client.cmdRouteLock.Lock()
+	client.clusterResponseByCommand[putCmd.CId] = responseChannel
+	client.cmdRouteLock.Unlock()
 	cmdEncoder := gob.NewEncoder(writePipe)
     err = cmdEncoder.Encode(putCmd)
 	if (err != nil) {
-    	fmt.Printf("Error writing %+v command pipe\n", putCmd)  
+    	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
 		log.Fatal(err)
     }
     writePipe.Close()
+    client.pipeLock.Unlock()
     fmt.Printf("Waiting for UPDATE response\n");
     return string((<- responseChannel).Key)
 }
 
-func Delete(key string) string {
-	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+func (client *Client) Delete(key string) string {
+	client.pipeLock.Lock()
+	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
 	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
 		log.Fatal(err)
 	}
 	fmt.Printf("Starting DELETE command\n")
 	getCmd := &Command{}
 	getCmd.CType = DELETE
 	getCmd.Key = key
-	getCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	getCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	clusterResponseByCommand[getCmd.CId] = responseChannel
-	
+	client.cmdRouteLock.Lock()
+	client.clusterResponseByCommand[getCmd.CId] = responseChannel
+	client.cmdRouteLock.Unlock()
 	cmdEncoder := gob.NewEncoder(writePipe)
     err = cmdEncoder.Encode(getCmd)
 	if (err != nil) {
@@ -186,21 +207,23 @@ func Delete(key string) string {
     return (<- responseChannel).Key
 }
 
-func Get(key string) []byte {
-	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+func (client *Client) Get(key string) []byte {
+	client.pipeLock.Lock()
+	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
 	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
 		log.Fatal(err)
 	}
 	fmt.Printf("Starting GET command\n")
 	getCmd := &Command{}
 	getCmd.CType = GET
 	getCmd.Key = key
-	getCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	getCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	clusterResponseByCommand[getCmd.CId] = responseChannel
-	
+	client.cmdRouteLock.Lock()
+	client.clusterResponseByCommand[getCmd.CId] = responseChannel
+	client.cmdRouteLock.Unlock()
 	cmdEncoder := gob.NewEncoder(writePipe)
     err = cmdEncoder.Encode(getCmd)
 	if (err != nil) {
@@ -208,6 +231,7 @@ func Get(key string) []byte {
 		log.Fatal(err)
     }
     writePipe.Close()
+    client.pipeLock.Unlock()
     fmt.Printf("Waiting for GET response\n");
     return (<- responseChannel).Value
 }
@@ -242,10 +266,10 @@ func ListenForClients(pipename string) {
 		}
 		
 		fmt.Printf("Need to open pipe for reading client commands: %+v\n", msg)
-		if (!servedClients[msg.Pipename]) {
-			go serveClient(msg.Pipename)
+		if (!servedClients[msg.ClientName]) {
+			go serveClient(msg.ClientName)
 		}
-		servedClients[msg.Pipename] = true
+		servedClients[msg.ClientName] = true
 	}
 }
 
