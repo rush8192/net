@@ -94,9 +94,11 @@ func routeCommandResponse(response * Command) {
 		fmt.Printf("Got response to put command: %s\n", response.Key)
 		clusterResponseByCommand[cmdId] <- response
 	case UPDATE:
-		
+		fmt.Printf("Got response to update command: %s\n", response.Key)
+		clusterResponseByCommand[cmdId] <- response
 	case DELETE:
-		
+		fmt.Printf("Got response to delete command: %s\n", response.Key)
+		clusterResponseByCommand[cmdId] <- response
 	default:
 		fmt.Printf("Unrecognized command type %d\n", response.CType)
 	}
