@@ -1,0 +1,24 @@
+project: cluster
+
+Uses the Raft consensus algorithm (https://raft.github.io/) to create a
+fault-tolerant key-value state machine. Intended for storing cluster
+configuration and other metadata that may be used by other distributed
+systems built using the client library.
+
+Primary components (server):
+cluster/cluster.go: cluster and rpc struct definitions; core server listening loop
+cluster/candidate.go: handles Raft leader election logic (sending/responding to votes)
+cluster/leader.go: contains logic for leader (log replication, heartbeats)
+cluster/member.go: contains logic for cluster members
+cluster/store.go: handles disk persistence of a single node's keys/values
+
+Primary components (client)
+cluster/client.go: client library intended to run alongside cluster as separate process
+cluster/command.go: defines commands that can be sent by a client
+
+Shared components:
+cluster/log.go: Translates client commands into Raft procedures
+
+Secondary components:
+main/main.go: driver program for cluster binary
+gfawn/gfawn.go: driver program for client test binary
