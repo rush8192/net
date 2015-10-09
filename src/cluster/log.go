@@ -11,15 +11,15 @@ type LogEntry struct {
 }
 
 func AppendCommandToLog(command *Command) {
-	cluster.clusterLock.RLock()
+	
 	fmt.Printf("Got cluster lock\n")
 	if (command.CType == GET) {
 		fmt.Printf("Handling get request: %+v\n", command)
 		handleGet(command)
-		cluster.clusterLock.RUnlock()
 	} else if (command.CType == COMMIT) {
 		// not implemented
 	} else {
+		cluster.clusterLock.RLock()
 		fmt.Printf("Attempting to append command %+v to log\n", command)
 		if (cluster.Self == cluster.Leader) {
 			cluster.clusterLock.RUnlock()
@@ -47,10 +47,12 @@ func handleGet(command *Command) {
 				fmt.Printf("Found entry in log with key from GET command\n")
 			}
 		}
+		cluster.clusterLock.Lock()
 		if (highestConflictingEntry == int64(-1) || 
 				updateStateMachineToLogIndex(highestConflictingEntry)) {
 			fmt.Printf("Fetching value from backing store\n")
 			command.Value = StoreGet(command.Key)
+			cluster.clusterLock.Unlock()
 		}
 	}
 }
