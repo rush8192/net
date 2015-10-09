@@ -131,11 +131,57 @@ func Put(key string, value []byte) string {
 }
 
 func Update(key string, value []byte) string {
-	return key
+	fmt.Printf("Opening write pipe %s\n", getWritePipeName(pipeName, true))
+	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+	if err != nil {
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		log.Fatal(err)
+	}
+	fmt.Printf("Starting UPDATE command\n")
+	putCmd := &Command{}
+	putCmd.CType = UPDATE
+	putCmd.Key = key
+	putCmd.Value = value
+	putCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	
+	responseChannel := make(chan *Command)
+	clusterResponseByCommand[putCmd.CId] = responseChannel
+	
+	cmdEncoder := gob.NewEncoder(writePipe)
+    err = cmdEncoder.Encode(putCmd)
+	if (err != nil) {
+    	fmt.Printf("Error writing %+v command pipe\n", putCmd)  
+		log.Fatal(err)
+    }
+    writePipe.Close()
+    fmt.Printf("Waiting for UPDATE response\n");
+    return string((<- responseChannel).Key)
 }
 
-func Delete(key string, value []byte) string {
-	return key
+func Delete(key string) string {
+	writePipe, err := os.OpenFile(getWritePipeName(pipeName, true), os.O_WRONLY, 0666)
+	if err != nil {
+		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", pipeName)
+		log.Fatal(err)
+	}
+	fmt.Printf("Starting DELETE command\n")
+	getCmd := &Command{}
+	getCmd.CType = DELETE
+	getCmd.Key = key
+	getCmd.CId = atomic.AddInt64(&serialCommandId, 1)
+	
+	responseChannel := make(chan *Command)
+	clusterResponseByCommand[getCmd.CId] = responseChannel
+	
+	cmdEncoder := gob.NewEncoder(writePipe)
+    err = cmdEncoder.Encode(getCmd)
+	if (err != nil) {
+    	fmt.Printf("Error writing %+v command pipe\n", getCmd)  
+		log.Fatal(err)
+    }
+    writePipe.Close()
+    fmt.Printf("Waiting for DELETE response\n");
+    return (<- responseChannel).Key
 }
 
 func Get(key string) []byte {

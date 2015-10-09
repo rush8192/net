@@ -154,17 +154,17 @@ func leaderAppendToLog(command *Command) bool {
 		return false
 	}
 	fmt.Printf("Committed to own log\n")
-	votes := make(chan bool, len(cluster.Members) - 1)
+	voteChannel := make(chan bool, len(cluster.Members) - 1)
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendAppendRpc(logEntry, member, votes)
+			go SendAppendRpc(logEntry, member, voteChannel)
 		}
 	}
 	ResetHeartbeatTimer()
 	cluster.clusterLock.Unlock()
 	fmt.Printf("Waiting for responses \n")
-	return QuorumOfResponses(votesNeeded)
+	return QuorumOfResponses(voteChannel, votesNeeded)
 }
 
 /*
@@ -173,11 +173,11 @@ func leaderAppendToLog(command *Command) bool {
  * the commitIndex as needed.
  * TODO: add timeout to return false to client
  */
-func QuorumOfResponses(votesNeeded int) {
+func QuorumOfResponses(voteChannel chan bool, votesNeeded int) bool {
 	yesVotes := 1 // ourself
 	noVotes := 0
 	for {
-		vote := <- votes
+		vote := <- voteChannel
 		fmt.Printf("Received vote: %t\n", vote)
 		if (vote) {
 			yesVotes++
