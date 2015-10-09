@@ -11,6 +11,7 @@ import (
  * Leader: Sends a heartbeat (empty AppendEntries RPC) to each of the nodes in the cluster
  */ 
 func Heartbeat() {
+	fmt.Printf("Heartbeat triggered\n")
 	cluster.clusterLock.RLock()
 	defer cluster.clusterLock.RUnlock()
 	for _, member := range cluster.Members {
@@ -27,6 +28,7 @@ func Heartbeat() {
 
 func ResetHeartbeatTimer() {
 	cluster.electionTimer.Stop()
+	fmt.Printf("Heartbeat timer reset\n")
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
 }
 
@@ -119,7 +121,6 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 			node.nextIndex = 1
 		}
 		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil)
-		
 	}
 	if (ok) {
 		cluster.rpcLock.Lock()
