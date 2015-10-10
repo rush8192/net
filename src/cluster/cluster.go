@@ -116,6 +116,7 @@ type AppendEntriesResponse struct {
 	MemberLogIndex int64
 	Id string
 	Success bool
+	CId int64
 }
 
 /* 

@@ -92,7 +92,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 }
 
 func HandleAppendEntriesResponse(response AppendEntriesResponse) {
-	respondKey := GetAppendResponseKey(response.Id, response.PrevLogIndex)
+	respondKey := GetAppendResponseKey(response.Id, response.CId)
 	fmt.Printf("Checking callback channel at %s\n", respondKey)
 	channel, ok := cluster.oustandingRPC[respondKey]
 	if (response.Id == "") {
@@ -209,10 +209,10 @@ func updateCommitStatus() {
 /* combine node id with index of appendEntries rpc 
  * to create unique key to route response */
 func GetAppendResponseListenKey(rpc *Message, member *Node) string {
-	return GetAppendResponseKey(member.Hostname, rpc.AppendRPC.PrevLogIndex)
+	return GetAppendResponseKey(member.Hostname, rpc.AppendRPC.CId )
 }
 
-func GetAppendResponseKey (hostname string, logIndex int64) string {
-	return hostname + ":" + strconv.FormatInt(logIndex, 10)
+func GetAppendResponseKey (hostname string, cid int64) string {
+	return hostname + ":" + strconv.FormatInt(cid, 10)
 }
 

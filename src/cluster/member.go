@@ -29,6 +29,7 @@ func HandleAppendEntries(ae AppendEntries) {
 	aer.PrevLogIndex = ae.PrevLogIndex
 	aer.Id = cluster.Self.Hostname
 	aer.MemberLogIndex = cluster.LastLogEntry
+	aer.CId = ae.CId
 	if (ae.Term < cluster.CurrentTerm ||
 	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {

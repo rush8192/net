@@ -15,7 +15,6 @@ type LogEntry struct {
  * retrieving the value for a GET request key
  */
 func AppendCommandToLog(command *Command) {	
-	fmt.Printf("Got cluster lock\n")
 	if (command.CType == GET) {
 		fmt.Printf("Handling get request: %+v\n", command)
 		handleGet(command)
@@ -55,8 +54,8 @@ func handleGet(command *Command) {
 				updateStateMachineToLogIndex(highestConflictingEntry)) {
 			fmt.Printf("Fetching value from backing store\n")
 			command.Value = StoreGet(command.Key)
-			cluster.clusterLock.Unlock()
 		}
+		cluster.clusterLock.Unlock()
 	}
 }
 

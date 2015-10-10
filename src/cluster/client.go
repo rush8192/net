@@ -31,7 +31,7 @@ func InitClient(clientName string) *Client {
 	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1 }
 	RegisterClient(client)
     go ListenForCommandResponses(client)
-    time.Sleep(50*time.Millisecond)
+    time.Sleep(150*time.Millisecond)
     return client
 }
 
@@ -231,6 +231,7 @@ func (client *Client) Get(key string) []byte {
 		log.Fatal(err)
     }
     writePipe.Close()
+    fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), getCmd)
     client.pipeLock.Unlock()
     fmt.Printf("Waiting for GET response\n");
     return (<- responseChannel).Value
@@ -259,7 +260,7 @@ func ListenForClients(pipename string) {
 		dataDecoder := gob.NewDecoder(readPipe)
 		err = dataDecoder.Decode(msg)
 		if err != nil {
-			fmt.Printf("Error decoding registration msg\n");
+			fmt.Printf("Error decoding registration msg from %s\n", pipename);
 			//log.Fatal(err)
 			time.Sleep(10*time.Millisecond)
 			continue
@@ -273,18 +274,19 @@ func ListenForClients(pipename string) {
 	}
 }
 
-func serveClient(pipename string) {
-	fmt.Printf("Opening pipe %s to receive client commands\n", getReadPipeName(pipename, false))
-	if _, err := os.Stat(getReadPipeName(pipename, false)); err == nil {
+func serveClient(clientName string) {
+	fmt.Printf("Opening pipe %s to receive client commands\n", getReadPipeName(clientName, false))
+	if _, err := os.Stat(getReadPipeName(clientName, false)); err == nil {
 		fmt.Printf("pipe already exists\n")
 	} else {
-		syscall.Mknod(getReadPipeName(pipename, false), syscall.S_IFIFO|0666, 0)
+		syscall.Mknod(getReadPipeName(clientName, false), syscall.S_IFIFO|0666, 0)
 	}
+	responseLock := &sync.Mutex{}
 	for {
-		readPipe, err := os.OpenFile(getReadPipeName(pipename, false), os.O_RDONLY, 0666)
+		readPipe, err := os.OpenFile(getReadPipeName(clientName, false), os.O_RDONLY, 0666)
 		if err != nil {
-			fmt.Printf("Could not open client pipe for read)\n", getReadPipeName(pipename, false))
-			//log.Fatal(err)
+			fmt.Printf("Could not open client pipe for read)\n", getReadPipeName(clientName, false))
+			continue
 		}
 		defer readPipe.Close()
 		msg := &Command{}
@@ -292,25 +294,28 @@ func serveClient(pipename string) {
 		err = dataDecoder.Decode(msg)
 		if err != nil {
 			fmt.Printf("Error decoding client command msg\n");
-			//log.Fatal(err)
 			time.Sleep(20*time.Millisecond)
 			continue
 		}
-		fmt.Printf("Got command: %+v\n", msg)
-		AppendCommandToLog(msg)
-		writePipe, err := os.OpenFile(getWritePipeName(pipename, false), os.O_WRONLY, 0666)
-		if (err != nil) {
-			fmt.Printf("Could not open client pipe %s for write)\n", getWritePipeName(pipename, false))
-			//log.Fatal(err)
-			continue
-		}
-		defer writePipe.Close()
-		cmdEncoder := gob.NewEncoder(writePipe)
-		err = cmdEncoder.Encode(msg)
-		if (err != nil) {
-			fmt.Printf("Error writing command response %+v command to pipe\n", msg)  
-			//log.Fatal(err)
-		}
+		fmt.Printf("### %s: Got command: %+v\n", time.Now().String(), msg)
+		go handleClientCommand(clientName, msg, responseLock)
+	}
+}
+
+func handleClientCommand(clientName string, cmd *Command, responseLock *sync.Mutex) {
+	AppendCommandToLog(cmd)
+	responseLock.Lock()
+	defer responseLock.Unlock()
+	writePipe, err := os.OpenFile(getWritePipeName(clientName, false), os.O_WRONLY, 0666)
+	if (err != nil) {
+		fmt.Printf("Could not open client pipe %s for write)\n", getWritePipeName(clientName, false))
+		return
+	}
+	defer writePipe.Close()
+	cmdEncoder := gob.NewEncoder(writePipe)
+	err = cmdEncoder.Encode(cmd)
+	if (err != nil) {
+		fmt.Printf("Error writing command response %+v command to pipe\n", cmd)  
 	}
 }
 
