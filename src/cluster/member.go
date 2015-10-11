@@ -33,7 +33,6 @@ func HandleAppendEntries(ae AppendEntries) {
 	if (ae.Term < cluster.CurrentTerm ||
 	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
-	    fmt.Println(cluster.Log)
 	    fmt.Printf("Denied append entry request %+v\n", ae);
 	    fmt.Printf("Message term %d differs vs our term %d\n", ae.Term, cluster.CurrentTerm)
 	    fmt.Printf("Last log entry %d differs vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
@@ -45,7 +44,6 @@ func HandleAppendEntries(ae AppendEntries) {
 	} else {
 		fmt.Printf("Accepted append entry request %+v\n", ae);
 		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
-			fmt.Println(cluster.Log)
 			fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
 			cluster.Log = cluster.Log[0 : (ae.PrevLogIndex + 1)]
 			cluster.LastLogEntry = ae.PrevLogIndex

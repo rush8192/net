@@ -64,10 +64,10 @@ func handleGet(command *Command) {
 func updateStateMachineToLogIndex(logIndex int64) bool {
 	var appliedEntries int64
 	// keep first no-op entry in log, apply others
+	fmt.Printf("Commit index at %d\n", cluster.commitIndex)
 	for appliedEntries = cluster.LastApplied + 1; 
 			appliedEntries <= logIndex && appliedEntries <= cluster.commitIndex; 
 			appliedEntries++ {
-		fmt.Println(cluster.Log)
 		fmt.Printf("Applying command at index %d\n", appliedEntries)
 		success := ApplyToStateMachine(cluster.Log[appliedEntries])
 		if (!success) {

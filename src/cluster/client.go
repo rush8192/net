@@ -12,6 +12,7 @@ import "syscall"
 import "time"
 
 const REGISTER_PIPE = ".cluster/client.pipe"
+const TIMEOUT_MS = 10000
 
 type Registration struct {
 	ClientName string
@@ -61,6 +62,7 @@ func RegisterClient(client *Client) {
     if (err != nil) {
     	fmt.Printf("Error writing %+v register pipe\n", msg)  
 		log.Fatal(err)
+		client.Exit()
     }
     fmt.Printf("Done registering\n")
 }
@@ -92,6 +94,7 @@ func ListenForCommandResponses(client *Client, done chan bool) {
 		msg := &Command{}
 		dataDecoder := gob.NewDecoder(conn)
 		err = dataDecoder.Decode(msg)
+		conn.Close()
 		if err != nil {
 			fmt.Printf("Error decoding from command response pipe\n");
 			//log.Fatal(err)
@@ -149,6 +152,7 @@ func (client *Client) Put(key string, value []byte) string {
 	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
 	if err != nil {
 		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		client.Exit()
 		log.Fatal(err)
 	}
 	cmdEncoder := gob.NewEncoder(conn)
@@ -156,6 +160,7 @@ func (client *Client) Put(key string, value []byte) string {
     conn.Close()
 	if (err != nil) {
     	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
+		client.Exit()
 		log.Fatal(err)
     }
     fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), putCmd)
@@ -182,13 +187,15 @@ func (client *Client) Update(key string, value []byte) string {
 	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
 	if err != nil {
 		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		client.Exit()
 		log.Fatal(err)
 	}
 	defer conn.Close()
 	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(putCmd)
 	if (err != nil) {
-    	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
+    	fmt.Printf("Error writing %+v to command pipe\n", putCmd)
+    	client.Exit()  
 		log.Fatal(err)
     }
     client.PipeLock.Unlock()
@@ -211,12 +218,14 @@ func (client *Client) Delete(key string) string {
 	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
 	if err != nil {
 		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		client.Exit()
 		log.Fatal(err)
 	}
 	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(dltCmd)
 	if (err != nil) {
     	fmt.Printf("Error writing %+v command pipe\n", dltCmd)  
+    	client.Exit()
 		log.Fatal(err)
     }
     conn.Close()
@@ -240,12 +249,14 @@ func (client *Client) Get(key string) []byte {
 	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
 	if err != nil {
 		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		client.Exit()
 		log.Fatal(err)
 	}
 	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(getCmd)
 	if (err != nil) {
     	fmt.Printf("Error writing %+v command pipe\n", getCmd)  
+		client.Exit()
 		log.Fatal(err)
     }
     conn.Close()
@@ -326,6 +337,7 @@ func serveClient(clientName string, servedClients map[string]bool) {
 			delete(servedClients, clientName)
 			return
 		}
+		conn.Close()
 		fmt.Printf("### %s: Got command: %+v\n", time.Now().String(), msg)
 		go handleClientCommand(clientName, msg, GetWritePipeName(clientName, false), responseLock)
 	}

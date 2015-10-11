@@ -6,7 +6,7 @@ import "fmt"
 import "strconv"
 
 const NUM_THREADS = 10
-const NUM_ITERS = 10
+const NUM_ITERS = 100
 
 var client *cluster.Client
 

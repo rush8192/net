@@ -156,6 +156,7 @@ func leaderAppendToLog(command *Command) bool {
 		cluster.clusterLock.Unlock()
 		return false
 	}
+	logIndex := cluster.LastLogEntry
 	fmt.Printf("Committed to own log\n")
 	voteChannel := make(chan bool, len(cluster.Members) - 1)
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
@@ -165,9 +166,8 @@ func leaderAppendToLog(command *Command) bool {
 		}
 	}
 	ResetHeartbeatTimer()
-	cluster.clusterLock.Unlock()
 	fmt.Printf("Waiting for responses \n")
-	return QuorumOfResponses(voteChannel, votesNeeded)
+	return QuorumOfResponses(voteChannel, votesNeeded, logIndex)
 }
 
 /*
@@ -176,11 +176,19 @@ func leaderAppendToLog(command *Command) bool {
  * the commitIndex as needed.
  * TODO: add timeout to return false to client
  */
-func QuorumOfResponses(voteChannel chan bool, votesNeeded int) bool {
+func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) bool {
+	defer cluster.clusterLock.Unlock()
 	yesVotes := 1 // ourself
 	noVotes := 0
+	timeout := time.After(TIMEOUT_MS * time.Millisecond)
 	for {
-		vote := <- voteChannel
+		var vote bool
+		select {
+		case <- timeout:
+			fmt.Printf("Timeout on request\n")
+			return false
+		case vote = <- voteChannel:
+		}
 		fmt.Printf("Received vote: %t\n", vote)
 		if (vote) {
 			yesVotes++
@@ -190,9 +198,7 @@ func QuorumOfResponses(voteChannel chan bool, votesNeeded int) bool {
 		}
 		if (votesNeeded == 0) {
 			fmt.Printf("Successfully committed, append success\n")
-			cluster.clusterLock.Lock()
-			cluster.commitIndex = cluster.LastLogEntry
-			cluster.clusterLock.Unlock()
+			cluster.commitIndex = logIndex
 			return true
 		}
 		if (votesNeeded > (len(cluster.Members) - noVotes)) {
