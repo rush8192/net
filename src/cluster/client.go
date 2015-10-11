@@ -133,7 +133,6 @@ func routeCommandResponse(client *Client, response * Command) {
 }
 
 func (client *Client) Put(key string, value []byte) string {
-	client.PipeLock.Lock()
 	fmt.Printf("Starting PUT command for %s\n", key)
 	putCmd := &Command{}
 	putCmd.CType = PUT
@@ -333,6 +332,9 @@ func serveClient(clientName string, servedClients map[string]bool) {
 }
 
 func handleClientCommand(clientName string, cmd *Command, responseSocket string, responseLock *sync.Mutex) {	
+	AppendCommandToLog(cmd)
+	responseLock.Lock()
+	defer responseLock.Unlock()
 	conn, err := net.Dial("unix", responseSocket)
 	if err != nil {
 		fmt.Printf("Connection error attempting to dial socket %s \n", responseSocket)
