@@ -5,16 +5,16 @@ import "cluster"
 import "fmt"
 import "strconv"
 
-const NUM_THREADS = 10
-const NUM_ITERS = 100
+const NUM_THREADS = 50
+const NUM_ITERS = 50
 
 var client *cluster.Client
 
 func main() {
 	client = cluster.InitClient("gfawn")
-	key := client.Put("cluster_id", []byte("testcluster"))
-	if (key == "") {
-		fmt.Printf("Failed to put cluster id\n")
+	_, err := client.Put("cluster_id", []byte("testcluster"))
+	if (err != nil) {
+		fmt.Printf("Failed to put cluster id: %s\n", err.Error())
 		return
 	}
 	for iter := 0; iter < NUM_ITERS; iter++ {
@@ -33,13 +33,18 @@ func main() {
 }
 
 func PutAndGet(i int, responses chan string) {
-	resp := client.Put(strconv.Itoa(i), []byte(strconv.Itoa(i)))
-	if (resp == "") {
-		responses <- "fail"
+	_, err := client.Put(strconv.Itoa(i), []byte(strconv.Itoa(i)))
+	if (err != nil) {
+		responses <- " FAIL-PUT"
 		return
 	}
 	fmt.Printf("\tSuccessfully PUT %d\n", i)
-	result := string(client.Get(strconv.Itoa(i)))
+	resultBytes, err := client.Get(strconv.Itoa(i))
+	if (err != nil) {
+		responses <- " FAIL-GET"
+		return
+	}
+	result := string(resultBytes)
 	fmt.Printf("\tSuccessful GET %d\n", i)
 	responses <- result
 	fmt.Printf("\tSent %d to channel\n", i)

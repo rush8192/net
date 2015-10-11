@@ -1,5 +1,6 @@
 package cluster
 
+import "errors"
 import "fmt"
 import "encoding/gob"
 import "log"
@@ -126,6 +127,9 @@ func routeCommandResponse(client *Client, response * Command) {
 	case DELETE:
 		fmt.Printf("Got response to delete command: %s\n", response.Key)
 		client.ClusterResponseByCommand[cmdId] <- response
+	case FAILED:
+		fmt.Printf("  FAILED command %+v\n", response)
+		client.ClusterResponseByCommand[cmdId] <- response
 	default:
 		fmt.Printf("Unrecognized command type %d\n", response.CType)
 	}
@@ -135,7 +139,7 @@ func routeCommandResponse(client *Client, response * Command) {
 	client.CmdRouteLock.Unlock()
 }
 
-func (client *Client) Put(key string, value []byte) string {
+func (client *Client) Put(key string, value []byte) (string, error) {
 	fmt.Printf("Starting PUT command for %s\n", key)
 	putCmd := &Command{}
 	putCmd.CType = PUT
@@ -166,10 +170,15 @@ func (client *Client) Put(key string, value []byte) string {
     fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), putCmd)
     client.PipeLock.Unlock()
     fmt.Printf("Waiting for PUT response\n");
-    return string((<- responseChannel).Key)
+    response := (<- responseChannel)
+    err = nil
+    if (response.CType == FAILED) {
+    	err = errors.New("Get Failed")
+    }
+    return string(response.Key), err
 }
 
-func (client *Client) Update(key string, value []byte) string {
+func (client *Client) Update(key string, value []byte) (string, error) {
 	fmt.Printf("Opening write pipe %s\n", GetWritePipeName(client.Name, true))
 	
 	fmt.Printf("Starting UPDATE command\n")
@@ -200,10 +209,15 @@ func (client *Client) Update(key string, value []byte) string {
     }
     client.PipeLock.Unlock()
     fmt.Printf("Waiting for UPDATE response\n");
-    return string((<- responseChannel).Key)
+    response := (<- responseChannel)
+    err = nil
+    if (response.CType == FAILED) {
+    	err = errors.New("UPDATE Failed")
+    }
+    return string(response.Key), err
 }
 
-func (client *Client) Delete(key string) string {
+func (client *Client) Delete(key string) (string, error) {
 	fmt.Printf("Starting DELETE command\n")
 	dltCmd := &Command{}
 	dltCmd.CType = DELETE
@@ -231,10 +245,15 @@ func (client *Client) Delete(key string) string {
     conn.Close()
     client.PipeLock.Unlock()
     fmt.Printf("Waiting for DELETE response\n");
-    return (<- responseChannel).Key
+    response := (<- responseChannel)
+    err = nil
+    if (response.CType == FAILED) {
+    	err = errors.New("DELETE Failed")
+    }
+    return response.Key, err
 }
 
-func (client *Client) Get(key string) []byte {
+func (client *Client) Get(key string) ([]byte, error) {
 	fmt.Printf("Starting GET command\n")
 	getCmd := &Command{}
 	getCmd.CType = GET
@@ -263,7 +282,12 @@ func (client *Client) Get(key string) []byte {
     fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), getCmd)
     client.PipeLock.Unlock()
     fmt.Printf("Waiting for GET response\n");
-    return (<- responseChannel).Value
+    response := (<- responseChannel)
+    err = nil
+    if (response.CType == FAILED) {
+    	err = errors.New("Get Failed")
+    }
+    return response.Value, err
 }
 
 /********************************

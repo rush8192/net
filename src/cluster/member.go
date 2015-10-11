@@ -33,18 +33,24 @@ func HandleAppendEntries(ae AppendEntries) {
 	if (ae.Term < cluster.CurrentTerm ||
 	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
-	    fmt.Printf("Denied append entry request %+v\n", ae);
-	    fmt.Printf("Message term %d differs vs our term %d\n", ae.Term, cluster.CurrentTerm)
-	    fmt.Printf("Last log entry %d differs vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
+	    if (VERBOSE > 0) {
+	    	fmt.Printf("Denied append entry request %+v\n", ae);
+	    	fmt.Printf("Message term %d differs vs our term %d\n", ae.Term, cluster.CurrentTerm)
+	    	fmt.Printf("Last log entry %d differs vs Prev from msg %d\n", cluster.LastLogEntry, ae.PrevLogIndex )
+	    }
 	    if (cluster.LastLogEntry >= ae.PrevLogIndex) {
-	    	fmt.Printf("log entry terms differ: %d vs %d from msg\n", cluster.Log[ae.PrevLogIndex].Term, ae.PrevLogTerm)
+	    	if (VERBOSE > 0) {
+	    		fmt.Printf("log entry terms differ: %d vs %d from msg\n", cluster.Log[ae.PrevLogIndex].Term, ae.PrevLogTerm)
+	    	}
 	    }
 		aer.Success = false
 		cluster.clusterLock.Unlock()
 	} else {
-		fmt.Printf("Accepted append entry request %+v\n", ae);
+		fmt.Printf("Accepted append entry request for log index %d\n", ae.PrevLogIndex + 1);
 		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
-			fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
+			if (VERBOSE > 1) {
+				fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
+			}
 			cluster.Log = cluster.Log[0 : (ae.PrevLogIndex + 1)]
 			cluster.LastLogEntry = ae.PrevLogIndex
 		}

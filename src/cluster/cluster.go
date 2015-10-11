@@ -34,6 +34,8 @@ const HEARTBEAT_INTERVAL = 1000
 const ELECTION_TIMEOUT_MIN = 4000
 const ELECTION_TIMEOUT_MAX = 6000
 
+const VERBOSE = 1
+
 /*
  * Represents an active cluster
  */
@@ -227,7 +229,6 @@ func ListenForConnections(cluster * Cluster) {
 		log.Fatal(err)
 	}
 	for {
-		fmt.Println("Listening for messages")
 		conn, err := input.Accept() // this blocks until connection or error
 		if err != nil {
 			fmt.Printf("Error while accepting connection")
@@ -235,7 +236,9 @@ func ListenForConnections(cluster * Cluster) {
 			//log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
+		if (VERBOSE > 1) {
+			fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
+		}
 		go dispatchMessage(message)
 	}
 }

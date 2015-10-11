@@ -59,7 +59,6 @@ func HandleVoteResponse(vr RequestVoteResponse) {
 }
 
 func ResetElectionTimer(cluster * Cluster) bool {
-	fmt.Printf("resetting election timer\n")
 	if (cluster.electionTimer != nil) {
 		result := cluster.electionTimer.Stop()
 		if (result == false) {
@@ -129,7 +128,9 @@ func SendVoteRequestResponse(m *Message, target *Node) {
 
 func SetRandomElectionTimer() {
 	randomTimeout := rand.Float32()*(ELECTION_TIMEOUT_MAX - ELECTION_TIMEOUT_MIN) + ELECTION_TIMEOUT_MIN
-	fmt.Printf("Setting random timeout: %2.2f\n", randomTimeout)
+	if (VERBOSE > 1) {
+		fmt.Printf("Setting random timeout: %2.2f\n", randomTimeout)
+	}
 	cluster.electionTimer = time.AfterFunc(time.Duration(randomTimeout)*time.Millisecond, ElectionTimeout)
 }
 

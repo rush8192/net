@@ -12,7 +12,9 @@ import (
  * Leader: Sends a heartbeat (empty AppendEntries RPC) to each of the nodes in the cluster
  */ 
 func Heartbeat() {
-	fmt.Printf("Heartbeat triggered\n")
+	if (VERBOSE > 1) {
+		fmt.Printf("Heartbeat triggered\n")
+	}
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
@@ -22,7 +24,9 @@ func Heartbeat() {
 			}
 		}
 	}
-	fmt.Printf("Heartbeat timer reset\n")
+	if (VERBOSE > 1) {
+		fmt.Printf("Heartbeat timer reset\n")
+	}
 	cluster.electionTimer = time.AfterFunc(time.Duration(HEARTBEAT_INTERVAL)*time.Millisecond, Heartbeat)
 }
 
@@ -84,7 +88,9 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 		fmt.Printf("Encode error attempting to send AppendEntries to %s\n", member.Ip)
 		
 	} else {
-		fmt.Printf(time.Now().String() + " Sent AppendEntries: %+v to %+v\n", rpc, member);
+		if (VERBOSE > 1) {
+			fmt.Printf(time.Now().String() + " Sent AppendEntries: %+v to %+v\n", rpc, member);
+		}
 	}
 	conn.Close()
 }
