@@ -13,8 +13,6 @@ import (
  */ 
 func Heartbeat() {
 	fmt.Printf("Heartbeat triggered\n")
-	cluster.clusterLock.RLock()
-	defer cluster.clusterLock.RUnlock()
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
