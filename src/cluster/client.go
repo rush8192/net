@@ -149,7 +149,6 @@ func (client *Client) Put(key string, value []byte) (string, error) {
 	
 	responseChannel := make(chan *Command)
 	client.CmdRouteLock.Lock()
-	fmt.Printf("Listening for PUT response for %s at channel %d\n", key, putCmd.CId)
 	client.ClusterResponseByCommand[putCmd.CId] = responseChannel
 	client.CmdRouteLock.Unlock()
 	client.PipeLock.Lock()
@@ -323,7 +322,9 @@ func ListenForClients(pipename string) {
 				log.Fatal(err)
 			}
 		}
-		
+		if (msg.ClientName == "") {
+			continue
+		}
 		fmt.Printf("Need to open pipe for reading client commands: %+v\n", msg)
 		if (!servedClients[msg.ClientName]) {
 			go serveClient(msg.ClientName, servedClients)
@@ -362,7 +363,9 @@ func serveClient(clientName string, servedClients map[string]bool) {
 			return
 		}
 		conn.Close()
-		fmt.Printf("### %s: Got command: %+v\n", time.Now().String(), msg)
+		if (VERBOSE > 1) {
+			fmt.Printf("### %s: Got command: %+v\n", time.Now().String(), msg)
+		}
 		go handleClientCommand(clientName, msg, GetWritePipeName(clientName, false), responseLock)
 	}
 }

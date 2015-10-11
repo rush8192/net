@@ -79,14 +79,11 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(rpc)
 	if (err != nil) {
-		if (success != nil) {
-			success <- false
-		}
 		cluster.rpcLock.Lock()
 		delete(cluster.oustandingRPC, listenKey)
+		go SendAppendRpc(entry, member, success) // retry
 		cluster.rpcLock.Unlock()
 		fmt.Printf("Encode error attempting to send AppendEntries to %s\n", member.Ip)
-		
 	} else {
 		if (VERBOSE > 1) {
 			fmt.Printf(time.Now().String() + " Sent AppendEntries: %+v to %+v\n", rpc, member);
@@ -96,14 +93,15 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 }
 
 func HandleAppendEntriesResponse(response AppendEntriesResponse) {
-	respondKey := GetAppendResponseKey(response.Id, response.CId)
-	fmt.Printf("Checking callback channel at %s\n", respondKey)
+	respondKey := GetAppendResponseKey(response.Id, response.CId, response.PrevLogIndex)
 	channel, ok := cluster.oustandingRPC[respondKey]
 	if (response.Id == "") {
 		return
 	}
 	if (ok) {
-		fmt.Printf("Found channel, sending response: %t\n",response.Success)
+		if (VERBOSE > 2) {
+			fmt.Printf("Found channel, sending response: %t\n",response.Success)
+		}
 	}
 	node := GetNodeByHostname(response.Id)
 	node.nodeLock.Lock()
@@ -124,10 +122,7 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		if (ok) {
 			channel <- false
 		}
-		node.nextIndex--
-		if (node.nextIndex == 0) {
-			node.nextIndex = 1
-		}
+		node.nextIndex = response.PrevLogIndex + 1
 		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil)
 	}
 	if (ok) {
@@ -153,7 +148,6 @@ func SetPostElectionState() {
 }
 
 func leaderAppendToLog(command *Command) bool {
-	fmt.Printf("Attempting to commit to own log and get a quorum\n")
 	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
 	cluster.clusterLock.Lock()
 	if (!AppendToLog(logEntry)) {
@@ -161,7 +155,9 @@ func leaderAppendToLog(command *Command) bool {
 		return false
 	}
 	logIndex := cluster.LastLogEntry
-	fmt.Printf("Committed to own log\n")
+	if (VERBOSE > 1) {
+		fmt.Printf("Committed to own log\n")
+	}
 	voteChannel := make(chan bool, len(cluster.Members) - 1)
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
@@ -170,7 +166,9 @@ func leaderAppendToLog(command *Command) bool {
 		}
 	}
 	ResetHeartbeatTimer()
-	fmt.Printf("Waiting for responses \n")
+	if (VERBOSE > 1) {
+		fmt.Printf("Waiting for responses \n")
+	}
 	return QuorumOfResponses(voteChannel, votesNeeded, logIndex)
 }
 
@@ -178,7 +176,6 @@ func leaderAppendToLog(command *Command) bool {
  * Uses a channel to collect AppendEntriesResponses from members of the
  * cluster; returns true or false once outcome becomes definite, updating
  * the commitIndex as needed.
- * TODO: add timeout to return false to client
  */
 func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) bool {
 	defer cluster.clusterLock.Unlock()
@@ -193,7 +190,9 @@ func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) b
 			return false
 		case vote = <- voteChannel:
 		}
-		fmt.Printf("Received vote: %t\n", vote)
+		if (VERBOSE > 1) {
+			fmt.Printf("Received vote: %t\n", vote)
+		}
 		if (vote) {
 			yesVotes++
 			votesNeeded--
@@ -201,11 +200,13 @@ func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) b
 			noVotes++
 		}
 		if (votesNeeded == 0) {
-			fmt.Printf("Successfully committed, append success\n")
+			if (VERBOSE > 1) {
+				fmt.Printf("Successfully committed, append success\n")
+			}
 			cluster.commitIndex = logIndex
 			return true
 		}
-		if (votesNeeded > (len(cluster.Members) - noVotes)) {
+		if (votesNeeded > (len(cluster.Members) - (noVotes + yesVotes))) {
 			fmt.Printf("Too many no votes, append fails\n")
 			return false
 		}
@@ -219,10 +220,10 @@ func updateCommitStatus() {
 /* combine node id with index of appendEntries rpc 
  * to create unique key to route response */
 func GetAppendResponseListenKey(rpc *Message, member *Node) string {
-	return GetAppendResponseKey(member.Hostname, rpc.AppendRPC.CId )
+	return GetAppendResponseKey(member.Hostname, rpc.AppendRPC.CId, rpc.AppendRPC.PrevLogIndex )
 }
 
-func GetAppendResponseKey (hostname string, cid int64) string {
-	return hostname + ":" + strconv.FormatInt(cid, 10)
+func GetAppendResponseKey (hostname string, cid int64, logIndex int64) string {
+	return hostname + ":" + strconv.FormatInt(cid, 10) + ":" + strconv.FormatInt(logIndex, 10)
 }
 

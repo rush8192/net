@@ -16,13 +16,17 @@ type LogEntry struct {
  */
 func AppendCommandToLog(command *Command) {	
 	if (command.CType == GET) {
-		fmt.Printf("Handling get request: %+v\n", command)
+		if (VERBOSE > 0) {
+			fmt.Printf("Handling get request: %+v\n", command)
+		}
 		handleGet(command)
 	} else if (command.CType == COMMIT) {
 		// not implemented
 	} else {
 		cluster.clusterLock.RLock()
-		fmt.Printf("Attempting to append command %+v to log\n", command)
+		if (VERBOSE > 0) {
+			fmt.Printf("Attempting to append command %+v to log\n", command)
+		}
 		if (cluster.Self == cluster.Leader) {
 			cluster.clusterLock.RUnlock()
 		    if (!leaderAppendToLog(command)) {
@@ -39,20 +43,26 @@ func AppendCommandToLog(command *Command) {
 func handleGet(command *Command) {
 	if (cluster.Self.state == LEADER || cluster.Self.state == MEMBER) {
 		highestConflictingEntry := int64(-1)
-		fmt.Printf("Finding highest conflicting entry\n")
+		if (VERBOSE > 1) {
+			fmt.Printf("Finding highest conflicting entry\n")
+		}
 		for i, entry := range cluster.Log {
 			if (int64(i) <= cluster.LastApplied) {
 				continue
 			}
 			if (entry.C.Key == command.Key) {
 				highestConflictingEntry = int64(i)
-				fmt.Printf("Found entry in log with key from GET command\n")
+				if (VERBOSE > 1) {
+					fmt.Printf("Found entry in log with key from GET command\n")
+				}
 			}
 		}
 		cluster.clusterLock.Lock()
 		if (highestConflictingEntry == int64(-1) || 
 				updateStateMachineToLogIndex(highestConflictingEntry)) {
-			fmt.Printf("Fetching value from backing store\n")
+			if (VERBOSE > 1) {
+				fmt.Printf("Fetching value from backing store\n")
+			}
 			command.Value = StoreGet(command.Key)
 		}
 		cluster.clusterLock.Unlock()

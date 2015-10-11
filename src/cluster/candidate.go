@@ -58,7 +58,7 @@ func HandleVoteResponse(vr RequestVoteResponse) {
 	} 
 }
 
-func ResetElectionTimer(cluster * Cluster) bool {
+func ResetElectionTimer(cluster * Cluster) bool {	
 	if (cluster.electionTimer != nil) {
 		result := cluster.electionTimer.Stop()
 		if (result == false) {
