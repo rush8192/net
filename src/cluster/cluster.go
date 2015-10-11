@@ -260,12 +260,12 @@ func dispatchMessage(message *Message) {
 }
 
 func ParseMessage(conn net.Conn) *Message {
+	defer conn.Close()
 	dec := gob.NewDecoder(conn)
 	m := &Message{}
 	err := dec.Decode(m)
 	if (err != nil) {
 		fmt.Printf("Decode error in Parse Message\n")
-		//log.Fatal("denode error:", err)
 	}
 	return m
 }

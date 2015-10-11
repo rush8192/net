@@ -3,7 +3,9 @@ package cluster
 import "fmt"
 import "encoding/gob"
 import "log"
+import "net"
 import "os"
+import "os/signal"
 import "sync"
 import "sync/atomic"
 import "syscall"
@@ -16,11 +18,13 @@ type Registration struct {
 }
 
 type Client struct {
-	name string
-	pipeLock *sync.Mutex
-	clusterResponseByCommand map[int64]chan *Command
-	cmdRouteLock *sync.RWMutex
-	serialCommandId int64
+	Name string
+	PipeLock *sync.Mutex
+	ClusterResponseByCommand map[int64]chan *Command
+	CmdRouteLock *sync.RWMutex
+	SerialCommandId int64
+	WritePipe *os.File
+	CListener net.Listener
 }
 
 /*
@@ -28,57 +32,69 @@ type Client struct {
  * UPDATE, DELETE, and COMMIT commands from a client program
  */
 func InitClient(clientName string) *Client {
-	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1 }
+	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1 ,nil, nil}
 	RegisterClient(client)
-    go ListenForCommandResponses(client)
-    time.Sleep(150*time.Millisecond)
+	done := make(chan bool)
+    go ListenForCommandResponses(client, done)
+    <- done
+    fmt.Printf("Done initializing client\n");
     return client
 }
 
-func RegisterClient(client *Client) {
-	if _, err := os.Stat(getWritePipeName(client.name, true)); err == nil {
-		fmt.Printf("write pipe already exists\n")
-	} else {
-		syscall.Mknod(getWritePipeName(client.name, true), syscall.S_IFIFO|0666, 0)
+func (client *Client) Exit() {
+	if (client.CListener != nil) {
+		client.CListener.Close()
 	}
+}
+
+func RegisterClient(client *Client) {
+	fmt.Printf("Registering client %s\n", client.Name)
 	registerPipe, err := os.OpenFile(REGISTER_PIPE, os.O_WRONLY, 0666) // For write access.
 	if err != nil {
 		fmt.Printf("Could not register client with cluster program (couldnt open %s for write)\n", REGISTER_PIPE)
 		log.Fatal(err)
 	}
-	msg := &Registration{ client.name }
+	fmt.Printf("Sending registration\n")
+	msg := &Registration{ client.Name }
 	msgEncoder := gob.NewEncoder(registerPipe)
     err = msgEncoder.Encode(msg)
     if (err != nil) {
     	fmt.Printf("Error writing %+v register pipe\n", msg)  
 		log.Fatal(err)
     }
+    fmt.Printf("Done registering\n")
 }
 
 /*
  * Listens to responses to outstanding client commands, routing them to the 
  * correct outstanding function
  */
-func ListenForCommandResponses(client *Client) {
-	if _, err := os.Stat(getReadPipeName(client.name, true)); err == nil {
-		fmt.Printf("write pipe already exists\n")
-	} else {
-		syscall.Mknod(getReadPipeName(client.name, true), syscall.S_IFIFO|0666, 0)
-	}
+func ListenForCommandResponses(client *Client, done chan bool) {
+	readSocket, err := net.Listen("unix", GetReadPipeName(client.Name, true))
+    if err != nil {
+        fmt.Printf("Could not open client socket %s for read: %s\n", GetReadPipeName(client.Name,  true), err.Error())
+        done <- false
+        return
+    }
+    client.CListener = readSocket
+    sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, os.Kill, syscall.SIGTERM)
+    go handleSignal(sigc, readSocket)
+	defer readSocket.Close()
+	fmt.Printf("Waiting for command responses\n")
+	done <- true
 	for {
-		readPipe, err := os.OpenFile(getReadPipeName(client.name, true), os.O_RDONLY, 0666)
-		if err != nil {
-			fmt.Printf("Could not open pipe %s for read)\n", getReadPipeName(client.name, true))
-			log.Fatal(err)
-		}
-		defer readPipe.Close()
+		conn, err := readSocket.Accept()
+        if err != nil {
+            fmt.Println("accept error", err.Error())
+            return
+        }
 		msg := &Command{}
-		dataDecoder := gob.NewDecoder(readPipe)
+		dataDecoder := gob.NewDecoder(conn)
 		err = dataDecoder.Decode(msg)
 		if err != nil {
 			fmt.Printf("Error decoding from command response pipe\n");
 			//log.Fatal(err)
-			time.Sleep(20*time.Millisecond)
 			continue
 		}
 		fmt.Printf("Got response: %+v\n", msg)
@@ -92,147 +108,150 @@ func routeCommandResponse(client *Client, response * Command) {
 		fmt.Printf("Invalid command ID: %d\n", cmdId)
 		return 
 	}
-	client.cmdRouteLock.RLock()
+	client.CmdRouteLock.RLock()
 	switch response.CType {
 	case GET:
 		fmt.Printf("Got response to get command: %s\n", response.Value)
-		client.clusterResponseByCommand[cmdId] <- response
+		client.ClusterResponseByCommand[cmdId] <- response
 	case PUT:
 		fmt.Printf("Got response to put command: %s\n", response.Key)
-		client.clusterResponseByCommand[cmdId] <- response
+		client.ClusterResponseByCommand[cmdId] <- response
 		fmt.Printf("Sent response to channel %d\n", cmdId)
 	case UPDATE:
 		fmt.Printf("Got response to update command: %s\n", response.Key)
-		client.clusterResponseByCommand[cmdId] <- response
+		client.ClusterResponseByCommand[cmdId] <- response
 	case DELETE:
 		fmt.Printf("Got response to delete command: %s\n", response.Key)
-		client.clusterResponseByCommand[cmdId] <- response
+		client.ClusterResponseByCommand[cmdId] <- response
 	default:
 		fmt.Printf("Unrecognized command type %d\n", response.CType)
 	}
-	client.cmdRouteLock.RUnlock()
-	client.cmdRouteLock.Lock()
-	delete(client.clusterResponseByCommand, cmdId)
-	client.cmdRouteLock.Unlock()
+	client.CmdRouteLock.RUnlock()
+	client.CmdRouteLock.Lock()
+	delete(client.ClusterResponseByCommand, cmdId)
+	client.CmdRouteLock.Unlock()
 }
 
 func (client *Client) Put(key string, value []byte) string {
-	fmt.Printf("Opening write pipe %s to put %s\n", getWritePipeName(client.name, true), key)
-	client.pipeLock.Lock()
-	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
-		log.Fatal(err)
-	}
+	client.PipeLock.Lock()
 	fmt.Printf("Starting PUT command for %s\n", key)
 	putCmd := &Command{}
 	putCmd.CType = PUT
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
+	putCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	client.cmdRouteLock.Lock()
+	client.CmdRouteLock.Lock()
 	fmt.Printf("Listening for PUT response for %s at channel %d\n", key, putCmd.CId)
-	client.clusterResponseByCommand[putCmd.CId] = responseChannel
-	client.cmdRouteLock.Unlock()
-	cmdEncoder := gob.NewEncoder(writePipe)
+	client.ClusterResponseByCommand[putCmd.CId] = responseChannel
+	client.CmdRouteLock.Unlock()
+	client.PipeLock.Lock()
+	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
+	if err != nil {
+		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		log.Fatal(err)
+	}
+	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(putCmd)
+    conn.Close()
 	if (err != nil) {
     	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
 		log.Fatal(err)
     }
-    writePipe.Close()
-    client.pipeLock.Unlock()
+    fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), putCmd)
+    client.PipeLock.Unlock()
     fmt.Printf("Waiting for PUT response\n");
     return string((<- responseChannel).Key)
 }
 
 func (client *Client) Update(key string, value []byte) string {
-	fmt.Printf("Opening write pipe %s\n", getWritePipeName(client.name, true))
-	client.pipeLock.Lock()
-	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
-		log.Fatal(err)
-	}
+	fmt.Printf("Opening write pipe %s\n", GetWritePipeName(client.Name, true))
+	
 	fmt.Printf("Starting UPDATE command\n")
 	putCmd := &Command{}
 	putCmd.CType = UPDATE
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
+	putCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	client.cmdRouteLock.Lock()
-	client.clusterResponseByCommand[putCmd.CId] = responseChannel
-	client.cmdRouteLock.Unlock()
-	cmdEncoder := gob.NewEncoder(writePipe)
+	client.CmdRouteLock.Lock()
+	client.ClusterResponseByCommand[putCmd.CId] = responseChannel
+	client.CmdRouteLock.Unlock()
+	client.PipeLock.Lock()
+	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
+	if err != nil {
+		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		log.Fatal(err)
+	}
+	defer conn.Close()
+	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(putCmd)
 	if (err != nil) {
     	fmt.Printf("Error writing %+v to command pipe\n", putCmd)  
 		log.Fatal(err)
     }
-    writePipe.Close()
-    client.pipeLock.Unlock()
+    client.PipeLock.Unlock()
     fmt.Printf("Waiting for UPDATE response\n");
     return string((<- responseChannel).Key)
 }
 
 func (client *Client) Delete(key string) string {
-	client.pipeLock.Lock()
-	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
-		log.Fatal(err)
-	}
 	fmt.Printf("Starting DELETE command\n")
-	getCmd := &Command{}
-	getCmd.CType = DELETE
-	getCmd.Key = key
-	getCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
+	dltCmd := &Command{}
+	dltCmd.CType = DELETE
+	dltCmd.Key = key
+	dltCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	client.cmdRouteLock.Lock()
-	client.clusterResponseByCommand[getCmd.CId] = responseChannel
-	client.cmdRouteLock.Unlock()
-	cmdEncoder := gob.NewEncoder(writePipe)
-    err = cmdEncoder.Encode(getCmd)
+	client.CmdRouteLock.Lock()
+	client.ClusterResponseByCommand[dltCmd.CId] = responseChannel
+	client.CmdRouteLock.Unlock()
+	client.PipeLock.Lock()
+	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
+	if err != nil {
+		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		log.Fatal(err)
+	}
+	cmdEncoder := gob.NewEncoder(conn)
+    err = cmdEncoder.Encode(dltCmd)
 	if (err != nil) {
-    	fmt.Printf("Error writing %+v command pipe\n", getCmd)  
+    	fmt.Printf("Error writing %+v command pipe\n", dltCmd)  
 		log.Fatal(err)
     }
-    writePipe.Close()
+    conn.Close()
+    client.PipeLock.Unlock()
     fmt.Printf("Waiting for DELETE response\n");
     return (<- responseChannel).Key
 }
 
 func (client *Client) Get(key string) []byte {
-	client.pipeLock.Lock()
-	writePipe, err := os.OpenFile(getWritePipeName(client.name, true), os.O_WRONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open command pipe (couldnt open %s for write)\n", client.name)
-		log.Fatal(err)
-	}
 	fmt.Printf("Starting GET command\n")
 	getCmd := &Command{}
 	getCmd.CType = GET
 	getCmd.Key = key
-	getCmd.CId = atomic.AddInt64(&client.serialCommandId, 1)
+	getCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
 	
 	responseChannel := make(chan *Command)
-	client.cmdRouteLock.Lock()
-	client.clusterResponseByCommand[getCmd.CId] = responseChannel
-	client.cmdRouteLock.Unlock()
-	cmdEncoder := gob.NewEncoder(writePipe)
+	client.CmdRouteLock.Lock()
+	client.ClusterResponseByCommand[getCmd.CId] = responseChannel
+	client.CmdRouteLock.Unlock()
+	client.PipeLock.Lock()
+	conn, err := net.Dial("unix", GetWritePipeName(client.Name, true))
+	if err != nil {
+		fmt.Printf("Connection error attempting to dial socket %s \n", GetWritePipeName(client.Name, true))
+		log.Fatal(err)
+	}
+	cmdEncoder := gob.NewEncoder(conn)
     err = cmdEncoder.Encode(getCmd)
 	if (err != nil) {
     	fmt.Printf("Error writing %+v command pipe\n", getCmd)  
 		log.Fatal(err)
     }
-    writePipe.Close()
+    conn.Close()
     fmt.Printf("### %s: Sent command: %+v\n", time.Now().String(), getCmd)
-    client.pipeLock.Unlock()
+    client.PipeLock.Unlock()
     fmt.Printf("Waiting for GET response\n");
     return (<- responseChannel).Value
 }
@@ -248,90 +267,106 @@ func ListenForClients(pipename string) {
 		syscall.Mknod(pipename, syscall.S_IFIFO|0666, 0)
 	}
 	servedClients := make(map[string]bool)
+	fmt.Printf("About to open pipe %s for read\n", pipename)
+	readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
+	if err != nil {
+		fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
+		log.Fatal(err)
+	}
+	defer readPipe.Close()
 	for {
-		fmt.Printf("About to open pipe %s for read\n", pipename)
-		readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
-		if err != nil {
-			fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
-			log.Fatal(err)
-		}
-		defer readPipe.Close()
 		msg := &Registration{}
 		dataDecoder := gob.NewDecoder(readPipe)
 		err = dataDecoder.Decode(msg)
 		if err != nil {
 			fmt.Printf("Error decoding registration msg from %s\n", pipename);
 			//log.Fatal(err)
+			readPipe.Close()
 			time.Sleep(10*time.Millisecond)
-			continue
+			readPipe, err = os.OpenFile(pipename, os.O_RDONLY, 0666)
+			if err != nil {
+				fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
+				log.Fatal(err)
+			}
 		}
 		
 		fmt.Printf("Need to open pipe for reading client commands: %+v\n", msg)
 		if (!servedClients[msg.ClientName]) {
-			go serveClient(msg.ClientName)
+			go serveClient(msg.ClientName, servedClients)
 		}
 		servedClients[msg.ClientName] = true
 	}
 }
 
-func serveClient(clientName string) {
-	fmt.Printf("Opening pipe %s to receive client commands\n", getReadPipeName(clientName, false))
-	if _, err := os.Stat(getReadPipeName(clientName, false)); err == nil {
-		fmt.Printf("pipe already exists\n")
-	} else {
-		syscall.Mknod(getReadPipeName(clientName, false), syscall.S_IFIFO|0666, 0)
-	}
+func serveClient(clientName string, servedClients map[string]bool) {
 	responseLock := &sync.Mutex{}
+	fmt.Printf("Serving client on socket %s\n", GetReadPipeName(clientName, false))
+	readSocket, err := net.Listen("unix", GetReadPipeName(clientName, false))
+    if err != nil {
+        fmt.Printf("Could not open client socket %s for read: %s\n", GetReadPipeName(clientName,  false), err.Error())
+        log.Fatal(err)
+    }
+    sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, os.Kill, syscall.SIGTERM)
+    go handleSignal(sigc, readSocket)
+    defer readSocket.Close()
 	for {
-		readPipe, err := os.OpenFile(getReadPipeName(clientName, false), os.O_RDONLY, 0666)
-		if err != nil {
-			fmt.Printf("Could not open client pipe for read)\n", getReadPipeName(clientName, false))
-			continue
-		}
-		defer readPipe.Close()
-		msg := &Command{}
-		dataDecoder := gob.NewDecoder(readPipe)
-		err = dataDecoder.Decode(msg)
+		conn, err := readSocket.Accept()
+        if err != nil {
+            fmt.Printf("Error accepting client command connection\n");
+			fmt.Printf(err.Error())
+			delete(servedClients, clientName)
+			return
+        }
+        msg := &Command{}
+		dec := gob.NewDecoder(conn)
+		err = dec.Decode(msg)
 		if err != nil {
 			fmt.Printf("Error decoding client command msg\n");
-			time.Sleep(20*time.Millisecond)
-			continue
+			fmt.Printf(err.Error())
+			delete(servedClients, clientName)
+			return
 		}
 		fmt.Printf("### %s: Got command: %+v\n", time.Now().String(), msg)
-		go handleClientCommand(clientName, msg, responseLock)
+		go handleClientCommand(clientName, msg, GetWritePipeName(clientName, false), responseLock)
 	}
 }
 
-func handleClientCommand(clientName string, cmd *Command, responseLock *sync.Mutex) {
-	AppendCommandToLog(cmd)
-	responseLock.Lock()
-	defer responseLock.Unlock()
-	writePipe, err := os.OpenFile(getWritePipeName(clientName, false), os.O_WRONLY, 0666)
-	if (err != nil) {
-		fmt.Printf("Could not open client pipe %s for write)\n", getWritePipeName(clientName, false))
+func handleClientCommand(clientName string, cmd *Command, responseSocket string, responseLock *sync.Mutex) {	
+	conn, err := net.Dial("unix", responseSocket)
+	if err != nil {
+		fmt.Printf("Connection error attempting to dial socket %s \n", responseSocket)
 		return
 	}
-	defer writePipe.Close()
-	cmdEncoder := gob.NewEncoder(writePipe)
-	err = cmdEncoder.Encode(cmd)
+	defer conn.Close()
+	encoder := gob.NewEncoder(conn)
+	err = encoder.Encode(cmd)
 	if (err != nil) {
-		fmt.Printf("Error writing command response %+v command to pipe\n", cmd)  
+		fmt.Printf("Encode error attempting to send Message to %s\n", responseSocket)
+		log.Fatal(err)
 	}
 }
 
+func handleSignal(c chan os.Signal, l net.Listener) {
+	sig := <-c
+    log.Printf("Caught signal %s: shutting down.", sig)
+    // Stop listening (and unlink the socket if unix type):
+    l.Close()
+    os.Exit(0)
+}
 
-func getReadPipeName(pipeBase string, isClient bool) string {
+func GetReadPipeName(pipeBase string, isClient bool) string {
 	if (isClient) { 
-		return pipeBase + "r"
+		return ".cluster/" + pipeBase + "r"
 	} else {
-		return pipeBase + "w"
+		return ".cluster/" + pipeBase + "w"
 	}
 }
 
-func getWritePipeName(pipeBase string, isClient bool) string {
+func GetWritePipeName(pipeBase string, isClient bool) string {
 	if (isClient) {
-		return pipeBase + "w"
+		return ".cluster/" + pipeBase + "w"
 	} else {
-		return pipeBase + "r"
+		return ".cluster/" + pipeBase + "r"
 	}
 } 
