@@ -18,9 +18,9 @@ func Heartbeat() {
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
-				go SendAppendRpc(&cluster.Log[member.nextIndex], member, nil)
+				go SendAppendRpc(&cluster.Log[member.nextIndex], member, nil, 0)
 			} else {
-				go SendAppendRpc(nil, member, nil)
+				go SendAppendRpc(nil, member, nil, 0)
 			}
 		}
 	}
@@ -39,7 +39,7 @@ func ResetHeartbeatTimer() {
 /*
  * Leader: Send AppendEntries Rpc
  */
-func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
+func SendAppendRpc(entry *LogEntry, member *Node, success chan bool, logIndex int64) {
 	var needListen bool = true
 	rpc := &Message{}
 	if (entry != nil) {
@@ -69,7 +69,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 		fmt.Printf("Connection error attempting to contact %s while sending AE RPC\n", member.Ip)
 		return
 	}
-	listenKey := GetAppendResponseListenKey(rpc, member)
+	listenKey := GetAppendResponseKey(member.Hostname, rpc.AppendRPC.CId, logIndex )
 	if (success != nil && needListen) {
 		cluster.rpcLock.Lock()
 		fmt.Printf("Setting callback channel at %s\n", listenKey)
@@ -79,10 +79,7 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool) {
 	encoder := gob.NewEncoder(conn)
 	err = encoder.Encode(rpc)
 	if (err != nil) {
-		cluster.rpcLock.Lock()
-		delete(cluster.oustandingRPC, listenKey)
-		go SendAppendRpc(entry, member, success) // retry
-		cluster.rpcLock.Unlock()
+		go SendAppendRpc(entry, member, nil, 0) // retry
 		fmt.Printf("Encode error attempting to send AppendEntries to %s\n", member.Ip)
 	} else {
 		if (VERBOSE > 1) {
@@ -99,8 +96,8 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		return
 	}
 	if (ok) {
-		if (VERBOSE > 2) {
-			fmt.Printf("Found channel, sending response: %t\n",response.Success)
+		if (VERBOSE > 0) {
+			fmt.Printf("Found channel at %s, sending response: %t\n", respondKey, response.Success)
 		}
 	}
 	node := GetNodeByHostname(response.Id)
@@ -122,8 +119,8 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		if (ok) {
 			channel <- false
 		}
-		node.nextIndex = response.PrevLogIndex + 1
-		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil)
+		node.nextIndex = response.MemberLogIndex + 1
+		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil, 0)
 	}
 	if (ok) {
 		cluster.rpcLock.Lock()
@@ -150,6 +147,7 @@ func SetPostElectionState() {
 func leaderAppendToLog(command *Command) bool {
 	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
 	cluster.clusterLock.Lock()
+	commandLogIndex := cluster.LastLogEntry
 	if (!AppendToLog(logEntry)) {
 		cluster.clusterLock.Unlock()
 		return false
@@ -162,7 +160,7 @@ func leaderAppendToLog(command *Command) bool {
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendAppendRpc(logEntry, member, voteChannel)
+			go SendAppendRpc(logEntry, member, voteChannel, commandLogIndex)
 		}
 	}
 	ResetHeartbeatTimer()
@@ -200,8 +198,8 @@ func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) b
 			noVotes++
 		}
 		if (votesNeeded == 0) {
-			if (VERBOSE > 1) {
-				fmt.Printf("Successfully committed, append success\n")
+			if (VERBOSE > 0) {
+				fmt.Printf("Successfully committed %d, append success\n", logIndex)
 			}
 			cluster.commitIndex = logIndex
 			return true

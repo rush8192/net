@@ -65,6 +65,7 @@ func RegisterClient(client *Client) {
 		log.Fatal(err)
 		client.Exit()
     }
+    time.Sleep(100*time.Millisecond)
     fmt.Printf("Done registering\n")
 }
 
@@ -315,7 +316,6 @@ func ListenForClients(pipename string) {
 			fmt.Printf("Error decoding registration msg from %s\n", pipename);
 			//log.Fatal(err)
 			readPipe.Close()
-			time.Sleep(10*time.Millisecond)
 			readPipe, err = os.OpenFile(pipename, os.O_RDONLY, 0666)
 			if err != nil {
 				fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)

@@ -10,7 +10,7 @@ import (
  * Member: respond to AppendEntries RPC
  */
 func HandleAppendEntries(ae AppendEntries) {
-	if (ae.LeaderId == "") {
+	if (ae.LeaderId == "" || cluster.Self.state != MEMBER) {
 		return
 	}
 	cluster.clusterLock.Lock()
@@ -25,11 +25,6 @@ func HandleAppendEntries(ae AppendEntries) {
 	response := &Message{}
 	response.MessageType = "AppendEntriesResponse"
 	aer := &response.AppendRPCResponse
-	aer.Term = cluster.CurrentTerm
-	aer.PrevLogIndex = ae.PrevLogIndex
-	aer.Id = cluster.Self.Hostname
-	aer.MemberLogIndex = cluster.LastLogEntry
-	aer.CId = ae.CId
 	if (ae.Term < cluster.CurrentTerm ||
 	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
@@ -63,6 +58,11 @@ func HandleAppendEntries(ae AppendEntries) {
 		}
 		cluster.clusterLock.Unlock()
 	}
+	aer.Term = cluster.CurrentTerm
+	aer.PrevLogIndex = ae.PrevLogIndex
+	aer.Id = cluster.Self.Hostname
+	aer.MemberLogIndex = cluster.LastLogEntry
+	aer.CId = ae.CId
 	SendAppendEntriesResponse(response, node)
 }
 
