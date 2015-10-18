@@ -47,8 +47,8 @@ func SendVoteRequest(target *Node, retry bool) {
  */
 func HandleVoteResponse(vr RequestVoteResponse) {
 	if (vr.VoteGranted == true) {
-		cluster.clusterLock.RLock()
-		defer cluster.clusterLock.RUnlock()
+		cluster.clusterLock.Lock()
+		defer cluster.clusterLock.Unlock()
 		if (cluster.Self.state != LEADER) {
 			cluster.votesCollected++
 			if (cluster.votesCollected > (len(cluster.Members) / 2)) {

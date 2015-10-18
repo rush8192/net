@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"encoding/gob"
+	"math"
 	"net"
 	"strconv"
 	"time"
@@ -119,7 +120,8 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		if (ok) {
 			channel <- false
 		}
-		node.nextIndex = response.MemberLogIndex + 1
+		
+		node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
 		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil, 0)
 	}
 	if (ok) {

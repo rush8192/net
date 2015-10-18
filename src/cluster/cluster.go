@@ -62,10 +62,10 @@ type Cluster struct {
 	
 	// Used to route responses to outstanding rpcs
 	oustandingRPC map[string]chan bool
-	rpcLock *sync.Mutex
+	rpcLock sync.Mutex
 	
 	/* used to synchronize access to cluster state */
-	clusterLock *sync.RWMutex
+	clusterLock sync.RWMutex
 }
 
 /*
@@ -82,7 +82,7 @@ type Node struct {
 	state string
 	
 	/* used to synchronize access to node */
-	nodeLock *sync.RWMutex
+	nodeLock sync.RWMutex
 }
 
 /* 
@@ -135,13 +135,11 @@ type Message struct {
 var C * Cluster
 var cluster * Cluster
 
-/*
- * Returns the Node representation of the local node
- */
-func InitSelf(filename string) * Node {
+
+func InitSelfFromDefaultsFile(filename string) (*Node, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer file.Close()
 	
@@ -154,7 +152,7 @@ func InitSelf(filename string) * Node {
 	node.Hostname = splitLine[0]
 	node.Ip = splitLine[1]
 	node.state = UNKNOWN
-	return node
+	return node, nil
 }
 
 func PrintClusterInfo(cluster *Cluster) {
@@ -171,16 +169,36 @@ func PrintClusterInfo(cluster *Cluster) {
  * Initializes the Cluster representation for this run of the program. Membership
  * may change as nodes join the cluster or go offline
  */
-func InitCluster(filename string, self * Node) * Cluster {
+func InitCluster(filenameCluster string, filenameSelf string) (*Cluster, error) {
 	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
+	
+	var err error
+	cluster, err = LoadStateFromFile()
+	if (err != nil) {
+		self, loadErr := InitSelfFromDefaultsFile(filenameSelf)
+		if (loadErr != nil) {
+			return nil, loadErr
+		}
+		cluster, loadErr = InitClusterFromDefaultsFile(filenameCluster, self)
+		if (loadErr != nil) {
+			return nil, loadErr
+		}
+	}
+	C = cluster
+	
+	cluster.oustandingRPC = make(map[string] chan bool)
+	InitStore()
+	return cluster, nil
+}
+
+func InitClusterFromDefaultsFile(filename string , self *Node) (*Cluster, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer file.Close()
+	cluster := new(Cluster)
 	
-	cluster = new(Cluster)
-	C = cluster
 	
 	scanner := bufio.NewScanner(file)
 	scanner.Scan()
@@ -197,7 +215,7 @@ func InitCluster(filename string, self * Node) * Cluster {
 			cluster.Members[onIndex] = self
 			cluster.Self = self
 		} else {
-			node := &Node{ splitLine[0], splitLine[1], 0, 0, UNKNOWN, &sync.RWMutex{} }
+			node := &Node{ splitLine[0], splitLine[1], 0, 0, UNKNOWN, sync.RWMutex{} }
 			cluster.Members[onIndex] = node
 		}
 		
@@ -212,12 +230,9 @@ func InitCluster(filename string, self * Node) * Cluster {
 	cluster.LastLogEntry = 0
 	cluster.LastApplied = 0
 	cluster.CurrentTerm = 0
-	cluster.rpcLock = &sync.Mutex{}
-	cluster.oustandingRPC = make(map[string] chan bool)
-	cluster.clusterLock = &sync.RWMutex{}
-	InitStore()
-	return cluster
+	return cluster, nil
 }
+
 
 /*
  * Loop that listens for incoming requests and dispatches them to 

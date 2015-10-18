@@ -14,11 +14,11 @@ var client *cluster.Client
 
 func main() {
 	client = cluster.InitClient("gfawn")
-	simpleTest()
+	TestPutAndGet()
 	client.Exit()
 }
 
-func simpleTest() {
+func TestPutAndGet() {
 	_, err := client.Put("cluster_id", []byte("testcluster"))
 	if (err != nil) {
 		fmt.Printf("Failed to put cluster id: %s\n", err.Error())
@@ -39,6 +39,10 @@ func simpleTest() {
 			}
 		}
 	}
+}
+
+func TestRandomPutGet(percentPut double) {
+	
 }
 
 func PutAndGet(i int, responses chan string) {

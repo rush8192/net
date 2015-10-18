@@ -1,8 +1,13 @@
 package cluster
 
+import "encoding/gob"
 import "fmt"
 import "log"
+import "os"
 import "time"
+
+const TMP_LOG_NAME = ".cluster/.tmplog"
+const LOG_NAME = ".cluster/log"
 
 type LogEntry struct {
 	C Command
@@ -81,7 +86,7 @@ func updateStateMachineToLogIndex(logIndex int64) bool {
 		fmt.Printf("Applying command at index %d\n", appliedEntries)
 		success := ApplyToStateMachine(cluster.Log[appliedEntries])
 		if (!success) {
-			fmt.Printf("Failed to apply entries to state machine\n")
+			fmt.Printf("### Failed to apply entries to state machine #####\n")
 			break
 		}
 	}
@@ -108,15 +113,55 @@ func ApplyToStateMachine(entry LogEntry) bool {
 	}
 	if (success) {
 		cluster.LastApplied++
-		success = SaveStateToFile()
+		writeErr := SaveStateToFile()
+		if (writeErr != nil) {
+			fmt.Println(writeErr)
+			return false
+		}
+		success = true
 	} else {
 		fmt.Printf("Failed to apply command for entry %+v\n", entry)
 	}
 	return success
 }
 
-func SaveStateToFile() bool {
-	return true
+func SaveStateToFile()  error {
+	tmpLogFile, err := os.Create(TMP_LOG_NAME)
+	if (err != nil) {
+		return err
+	}
+	encoder := gob.NewEncoder(tmpLogFile)
+	err = encoder.Encode(cluster)
+	if (err != nil) {
+		return err
+	}
+	renameErr := os.Rename(TMP_LOG_NAME, LOG_NAME)
+	if (renameErr != nil) {
+		return renameErr // TODO: try to recover?
+	}
+	return nil
+}
+
+func LoadStateFromFile() (*Cluster, error) {
+	cl, err := loadStateFromFile(LOG_NAME)
+	if (err != nil) {
+		cl, err = loadStateFromFile(TMP_LOG_NAME)
+	}
+	return cl, err
+}
+
+func loadStateFromFile(filename string) (*Cluster, error) {
+	tmpLogFile, err := os.Create(filename)
+	if (err != nil) {
+		return nil, err
+	}
+	clusterFromFile := &Cluster{}
+	decoder := gob.NewDecoder(tmpLogFile)
+	err = decoder.Decode(clusterFromFile)
+	if (err != nil) {
+		return nil, err
+	}
+	return clusterFromFile, nil
 }
 
 func AppendToLog(entry *LogEntry) bool {
@@ -133,5 +178,10 @@ func followerAppendToLog(command *Command) {
 }
 
 func CommitLog() bool {
+	writeErr := SaveStateToFile()
+	if (writeErr != nil) {
+		fmt.Println(writeErr)
+		return false
+	}
 	return true
 }

@@ -1,10 +1,14 @@
 package main
 
 import "cluster"
+import "fmt"
 
 func main() {
-	self := cluster.InitSelf("cfg/self.cfg")
-	clusterV := cluster.InitCluster("cfg/cluster.cfg", self)
+	clusterV, err := cluster.InitCluster("cfg/cluster.cfg", "cfg/self.cfg")
+	if (err != nil) {
+		fmt.Println(err)
+		return
+	}
 	cluster.ResetElectionTimer(clusterV)
 	go cluster.ListenForConnections(clusterV)
 	cluster.ListenForClients(cluster.REGISTER_PIPE);
