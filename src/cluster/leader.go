@@ -62,7 +62,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 									0  }
 	if (entry != nil) {
 		rpc.AppendRPC.Entries = append(make([]LogEntry, 0, 1), entry...)
-		rpc.AppendRPC.CId = entry[0].C.CId
+		rpc.AppendRPC.CId = entry[len(entry) - 1].C.CId
 	}
 	conn, err := net.Dial("tcp", member.Ip + ":" + CLUSTER_PORT)
 	if err != nil {
@@ -94,7 +94,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 }
 
 func HandleAppendEntriesResponse(response AppendEntriesResponse) {
-	respondKey := GetAppendResponseKey(response.Id, response.CId, response.PrevLogIndex)
+	respondKey := GetAppendResponseKey(response.Id, response.CId, response.MemberLogIndex - 1)
 	channel, ok := cluster.oustandingRPC[respondKey]
 	if (response.Id == "") {
 		return
@@ -125,8 +125,9 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		}
 		
 		node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
+		maxToSend := int(math.Min(float64(len(cluster.Log)), float64(node.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
 		go SendAppendRpc(cluster.Log[node.nextIndex : 
-			node.nextIndex + MAX_LOG_ENTRIES_PER_RPC], node, nil, 0)
+			maxToSend], node, nil, 0)
 	}
 	if (ok) {
 		cluster.rpcLock.Lock()
@@ -166,7 +167,8 @@ func leaderAppendToLog(command *Command) bool {
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendAppendRpc(append(make([]LogEntry, 0, 1), *logEntry), member, voteChannel, commandLogIndex)
+			maxToSend := int(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+			go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, voteChannel, commandLogIndex)
 		}
 	}
 	ResetHeartbeatTimer()
