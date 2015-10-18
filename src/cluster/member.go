@@ -10,11 +10,7 @@ import (
  * Member: respond to AppendEntries RPC
  */
 func HandleAppendEntries(ae AppendEntries) {
-	if (ae.LeaderId == "" || cluster.Self.state != MEMBER) {
-		return
-	}
 	cluster.clusterLock.Lock()
-	ResetElectionTimer(cluster)
 	node := GetNodeByHostname(ae.LeaderId)	
 	if (ae.Term > cluster.CurrentTerm) {
 		cluster.CurrentTerm = ae.Term
@@ -22,6 +18,11 @@ func HandleAppendEntries(ae AppendEntries) {
 		cluster.Leader = node
 		cluster.VotedFor = nil
 	}
+	if (ae.LeaderId == "" || cluster.Self.state != MEMBER) {
+		cluster.clusterLock.Unlock()
+		return
+	}
+	ResetElectionTimer(cluster)
 	response := &Message{}
 	response.MessageType = "AppendEntriesResponse"
 	aer := &response.AppendRPCResponse
