@@ -43,6 +43,7 @@ func HandleAppendEntries(ae AppendEntries) {
 		cluster.clusterLock.Unlock()
 	} else {
 		fmt.Printf("Accepted append entry request for log index %d\n", ae.PrevLogIndex + 1);
+		numNewEntries := int64(len(ae.Entries))
 		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
 			if (VERBOSE > 1) {
 				fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
@@ -53,9 +54,9 @@ func HandleAppendEntries(ae AppendEntries) {
 		if (ae.LeaderCommit > cluster.commitIndex) {
 			cluster.commitIndex = ae.LeaderCommit
 		}
-		aer.Success = AppendToLog(&ae.Entries[0])
+		aer.Success = AppendToLog(ae.Entries)
 		if (aer.Success) {
-			aer.NewLogIndex = ae.PrevLogIndex + 1
+			aer.NewLogIndex = ae.PrevLogIndex + numNewEntries
 		}
 		cluster.clusterLock.Unlock()
 	}

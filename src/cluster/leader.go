@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const MAX_LOG_ENTRIES_PER_RPC = 50
+
  /*
  * Leader: Sends a heartbeat (empty AppendEntries RPC) to each of the nodes in the cluster
  */ 
@@ -19,7 +21,8 @@ func Heartbeat() {
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
-				go SendAppendRpc(&cluster.Log[member.nextIndex], member, nil, 0)
+				go SendAppendRpc(cluster.Log[member.nextIndex : 
+					member.nextIndex + MAX_LOG_ENTRIES_PER_RPC], member, nil, 0)
 			} else {
 				go SendAppendRpc(nil, member, nil, 0)
 			}
@@ -40,7 +43,7 @@ func ResetHeartbeatTimer() {
 /*
  * Leader: Send AppendEntries Rpc
  */
-func SendAppendRpc(entry *LogEntry, member *Node, success chan bool, logIndex int64) {
+func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex int64) {
 	var needListen bool = true
 	rpc := &Message{}
 	if (entry != nil) {
@@ -58,8 +61,8 @@ func SendAppendRpc(entry *LogEntry, member *Node, success chan bool, logIndex in
 									cluster.Self.Hostname,
 									0  }
 	if (entry != nil) {
-		rpc.AppendRPC.Entries = append(make([]LogEntry, 0, 1),*entry)
-		rpc.AppendRPC.CId = entry.C.CId
+		rpc.AppendRPC.Entries = append(make([]LogEntry, 0, 1), entry...)
+		rpc.AppendRPC.CId = entry[0].C.CId
 	}
 	conn, err := net.Dial("tcp", member.Ip + ":" + CLUSTER_PORT)
 	if err != nil {
@@ -122,7 +125,8 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 		}
 		
 		node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
-		go SendAppendRpc(&cluster.Log[node.nextIndex], node, nil, 0)
+		go SendAppendRpc(cluster.Log[node.nextIndex : 
+			node.nextIndex + MAX_LOG_ENTRIES_PER_RPC], node, nil, 0)
 	}
 	if (ok) {
 		cluster.rpcLock.Lock()
@@ -150,7 +154,7 @@ func leaderAppendToLog(command *Command) bool {
 	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
 	cluster.clusterLock.Lock()
 	commandLogIndex := cluster.LastLogEntry
-	if (!AppendToLog(logEntry)) {
+	if (!AppendToLog(append(make([]LogEntry, 0, 1), *logEntry))) {
 		cluster.clusterLock.Unlock()
 		return false
 	}
@@ -162,7 +166,7 @@ func leaderAppendToLog(command *Command) bool {
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			go SendAppendRpc(logEntry, member, voteChannel, commandLogIndex)
+			go SendAppendRpc(append(make([]LogEntry, 0, 1), *logEntry), member, voteChannel, commandLogIndex)
 		}
 	}
 	ResetHeartbeatTimer()

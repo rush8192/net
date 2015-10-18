@@ -13,7 +13,7 @@ import "syscall"
 import "time"
 
 const REGISTER_PIPE = ".cluster/client.pipe"
-const TIMEOUT_MS = 10000
+const TIMEOUT_MS = 15000
 
 type Registration struct {
 	ClientName string

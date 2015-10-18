@@ -177,9 +177,9 @@ func loadStateFromFile(filename string) (*Cluster, error) {
 	return clusterFromFile, nil
 }
 
-func AppendToLog(entry *LogEntry) bool {
-	cluster.Log = append(cluster.Log, *entry)
-	cluster.LastLogEntry++
+func AppendToLog(entry []LogEntry) bool {
+	cluster.Log = append(cluster.Log, entry...)
+	cluster.LastLogEntry += int64(len(entry))
 	if (cluster.LastLogEntry >= int64(len(cluster.Log))) {
 		log.Fatal("LastLogEntry too high\n")
 	}

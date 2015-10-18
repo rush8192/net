@@ -7,8 +7,8 @@ import "log"
 import "strconv"
 import "strings"
 
-const NUM_THREADS = 50
-const NUM_ITERS = 50
+const NUM_THREADS = 20
+const NUM_ITERS = 100
 
 var client *cluster.Client
 
@@ -39,10 +39,6 @@ func TestPutAndGet() {
 			}
 		}
 	}
-}
-
-func TestRandomPutGet(percentPut double) {
-	
 }
 
 func PutAndGet(i int, responses chan string) {
