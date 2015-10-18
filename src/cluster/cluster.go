@@ -173,7 +173,7 @@ func InitCluster(filenameCluster string, filenameSelf string) (*Cluster, error) 
 	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
 	
 	var err error
-	if (len(os.Args) > 1 && os.Args[1] != "-d") {
+	if (len(os.Args) < 2 || os.Args[1] != "-d") {
 		cluster, err = LoadStateFromFile()
 	}
 	if (err != nil || cluster == nil) {

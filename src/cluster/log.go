@@ -130,6 +130,7 @@ func SaveStateToFile()  error {
 	if (err != nil) {
 		return err
 	}
+	defer tmpLogFile.Close()
 	encoder := gob.NewEncoder(tmpLogFile)
 	err = encoder.Encode(cluster)
 	if (err != nil) {
@@ -139,27 +140,39 @@ func SaveStateToFile()  error {
 	if (renameErr != nil) {
 		return renameErr // TODO: try to recover?
 	}
+	if (VERBOSE > 0) {
+		fmt.Printf("Saved cluster state to file %s\n", LOG_NAME)
+	}
 	return nil
 }
 
 func LoadStateFromFile() (*Cluster, error) {
 	cl, err := loadStateFromFile(LOG_NAME)
 	if (err != nil) {
+		fmt.Println(err)
 		cl, err = loadStateFromFile(TMP_LOG_NAME)
+		if (err != nil) {
+			fmt.Println(err) 
+		}
 	}
 	return cl, err
 }
 
 func loadStateFromFile(filename string) (*Cluster, error) {
-	tmpLogFile, err := os.Create(filename)
+	logFile, err := os.Open(filename)
 	if (err != nil) {
 		return nil, err
 	}
 	clusterFromFile := &Cluster{}
-	decoder := gob.NewDecoder(tmpLogFile)
+	decoder := gob.NewDecoder(logFile)
 	err = decoder.Decode(clusterFromFile)
 	if (err != nil) {
 		return nil, err
+	}
+	for _, member := range clusterFromFile.Members {
+		if (member.Hostname == clusterFromFile.Self.Hostname) {
+			clusterFromFile.Self = member
+		}
 	}
 	return clusterFromFile, nil
 }
