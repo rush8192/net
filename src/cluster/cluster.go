@@ -132,8 +132,8 @@ type Message struct {
 	RequestVoteResponse RequestVoteResponse
 }
 
-var C * Cluster
-var cluster * Cluster
+var C * Cluster = nil
+var cluster * Cluster = nil
 
 
 func InitSelfFromDefaultsFile(filename string) (*Node, error) {
@@ -173,8 +173,14 @@ func InitCluster(filenameCluster string, filenameSelf string) (*Cluster, error) 
 	rand.Seed( time.Now().UTC().UnixNano()) // seed RNG for random timeouts
 	
 	var err error
-	cluster, err = LoadStateFromFile()
-	if (err != nil) {
+	if (len(os.Args) > 1 && os.Args[1] != "-d") {
+		cluster, err = LoadStateFromFile()
+	}
+	if (err != nil || cluster == nil) {
+		if (VERBOSE > 0) {
+			fmt.Printf("Loading cluster from default file %s and self %s\n", 
+				filenameCluster, filenameSelf)
+		}
 		self, loadErr := InitSelfFromDefaultsFile(filenameSelf)
 		if (loadErr != nil) {
 			return nil, loadErr
