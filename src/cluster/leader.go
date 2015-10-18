@@ -21,8 +21,8 @@ func Heartbeat() {
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
-				go SendAppendRpc(cluster.Log[member.nextIndex : 
-					member.nextIndex + MAX_LOG_ENTRIES_PER_RPC], member, nil, 0)
+				maxToSend := int(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+				go SendAppendRpc(cluster.Log[member.nextIndex : maxToSend], member, nil, 0)
 			} else {
 				go SendAppendRpc(nil, member, nil, 0)
 			}
