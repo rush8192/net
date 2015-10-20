@@ -52,7 +52,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 		rpc.MessageType = "Heartbeat"
 		needListen = false
 	}
-	fmt.Printf("%d entries in log; sending append rpc with index %d\n", len(cluster.Log), (member.nextIndex - 1))
+	fmt.Printf("%d entries in log; sending append rpc with Previndex %d\n", len(cluster.Log), (member.nextIndex - 1))
 	rpc.AppendRPC = AppendEntries{ 	cluster.CurrentTerm, 
 									nil,
 									cluster.commitIndex,
@@ -167,8 +167,12 @@ func leaderAppendToLog(command *Command) bool {
 	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
-			maxToSend := int(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
-			go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, voteChannel, commandLogIndex)
+			maxToSend := int64(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+			if (maxToSend - member.nextIndex != 0) {
+				go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, voteChannel, commandLogIndex)
+			} else {
+				fmt.Printf("## empty rpc; alraedy sent by heartbeat?\n")
+			}
 		}
 	}
 	ResetHeartbeatTimer()
