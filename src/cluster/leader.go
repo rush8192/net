@@ -141,12 +141,12 @@ func SetPostElectionState() {
 	fmt.Printf("Won election\n");
 	cluster.electionTimer.Stop() // can't timeout as leader
 	cluster.Leader = cluster.Self
-	cluster.Self.state = LEADER
+	cluster.Self.State = LEADER
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			member.nextIndex = cluster.LastLogEntry + 1
 			member.matchIndex = 0
-			member.state = MEMBER
+			member.State = MEMBER
 		}
 	}
 	go AppendCommandToLog(&Command{})

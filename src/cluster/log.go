@@ -46,7 +46,7 @@ func AppendCommandToLog(command *Command) {
 }
 
 func handleGet(command *Command) {
-	if (cluster.Self.state == LEADER || cluster.Self.state == MEMBER) {
+	if (cluster.Self.State == LEADER || cluster.Self.State == MEMBER) {
 		highestConflictingEntry := int64(-1)
 		if (VERBOSE > 1) {
 			fmt.Printf("Finding highest conflicting entry\n")

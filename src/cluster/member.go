@@ -14,11 +14,11 @@ func HandleAppendEntries(ae AppendEntries) {
 	node := GetNodeByHostname(ae.LeaderId)	
 	if (ae.Term > cluster.CurrentTerm) {
 		cluster.CurrentTerm = ae.Term
-		cluster.Self.state = MEMBER
+		cluster.Self.State = MEMBER
 		cluster.Leader = node
 		cluster.VotedFor = nil
 	}
-	if (ae.LeaderId == "" || cluster.Self.state != MEMBER) {
+	if (ae.LeaderId == "" || cluster.Self.State != MEMBER) {
 		cluster.clusterLock.Unlock()
 		return
 	}

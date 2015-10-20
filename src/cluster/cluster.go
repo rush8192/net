@@ -79,7 +79,7 @@ type Node struct {
 	/* volatile state on leader */
 	nextIndex int64
 	matchIndex int64
-	state string
+	State string
 	
 	/* used to synchronize access to node */
 	nodeLock sync.RWMutex
@@ -151,7 +151,7 @@ func InitSelfFromDefaultsFile(filename string) (*Node, error) {
 	splitLine := strings.Split(line, "\t")
 	node.Hostname = splitLine[0]
 	node.Ip = splitLine[1]
-	node.state = UNKNOWN
+	node.State = UNKNOWN
 	return node, nil
 }
 
@@ -258,7 +258,7 @@ func ListenForConnections(cluster * Cluster) {
 			//log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		if (VERBOSE > 0) {
+		if (VERBOSE > 1 || (cluster.Self.State == LEADER)) {
 			fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
 		}
 		go dispatchMessage(message)

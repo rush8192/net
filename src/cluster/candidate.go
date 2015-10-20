@@ -24,7 +24,7 @@ func SendVoteRequest(target *Node, retry bool) {
 		//log.Fatal("Connection error", err)
 		if (retry) {
 			time.Sleep((3*ELECTION_TIMEOUT_MIN/4)*time.Millisecond)
-			if (cluster.Self.state == UNKNOWN) { 
+			if (cluster.Self.State == UNKNOWN) { 
 				SendVoteRequest(target, false)
 			}
 		}
@@ -49,7 +49,7 @@ func HandleVoteResponse(vr RequestVoteResponse) {
 	if (vr.VoteGranted == true) {
 		cluster.clusterLock.Lock()
 		defer cluster.clusterLock.Unlock()
-		if (cluster.Self.state != LEADER) {
+		if (cluster.Self.State != LEADER) {
 			cluster.votesCollected++
 			if (cluster.votesCollected > (len(cluster.Members) / 2)) {
 				SetPostElectionState()
@@ -81,7 +81,7 @@ func HandleVoteRequest(vr RequestVote) {
 	if (vr.Term > cluster.CurrentTerm) {
 		cluster.CurrentTerm = vr.Term;
 		ResetElectionTimer(cluster)
-		cluster.Self.state = MEMBER
+		cluster.Self.State = MEMBER
 		cluster.VotedFor = nil
 	}
 	// accept vote
@@ -94,7 +94,7 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.VotedFor = sender
 		cluster.Leader = sender
 		fmt.Printf("Accepting vote from %s\n", vr.Id)
-		cluster.Self.state = MEMBER
+		cluster.Self.State = MEMBER
 	} else {
 		fmt.Printf("Rejecting vote request from %s\n", vr.Id)
 		m.RequestVoteResponse = RequestVoteResponse{ cluster.CurrentTerm, false }
@@ -141,7 +141,7 @@ func SetRandomElectionTimer() {
 func ElectionTimeout() {
 	cluster.clusterLock.Lock()
 	defer cluster.clusterLock.Unlock()
-	cluster.Self.state = UNKNOWN
+	cluster.Self.State = UNKNOWN
 	cluster.CurrentTerm++
 	fmt.Printf("Timed out, starting election in term %d\n", cluster.CurrentTerm)
 	cluster.VotedFor = cluster.Self
