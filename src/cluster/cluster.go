@@ -249,6 +249,7 @@ func ListenForConnections(cluster * Cluster) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Printf("Listening for incoming connections for cluster %+v\n", cluster)
 	for {
 		conn, err := input.Accept() // this blocks until connection or error
 		if err != nil {
@@ -257,7 +258,7 @@ func ListenForConnections(cluster * Cluster) {
 			//log.Fatal(err)
 		}
 		message := ParseMessage(conn)
-		if (VERBOSE > 1) {
+		if (VERBOSE > 0) {
 			fmt.Printf(time.Now().String() + " Got message: %+v\n", message);
 		}
 		go dispatchMessage(message)

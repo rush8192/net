@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const MAX_LOG_ENTRIES_PER_RPC = 50
+const MAX_LOG_ENTRIES_PER_RPC = 5000
 
  /*
  * Leader: Sends a heartbeat (empty AppendEntries RPC) to each of the nodes in the cluster
@@ -52,7 +52,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 		rpc.MessageType = "Heartbeat"
 		needListen = false
 	}
-	fmt.Printf("%d entries in log; sending append rpc with Previndex %d\n", len(cluster.Log), (member.nextIndex - 1))
+	fmt.Printf("%d entries in log; sending append rpc with Previndex %d to %s\n", len(cluster.Log), (member.nextIndex - 1), member.Hostname)
 	rpc.AppendRPC = AppendEntries{ 	cluster.CurrentTerm, 
 									nil,
 									cluster.commitIndex,
@@ -86,8 +86,9 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 		go SendAppendRpc(entry, member, nil, 0) // retry
 		fmt.Printf("Encode error attempting to send AppendEntries to %s\n", member.Ip)
 	} else {
-		if (VERBOSE > 1) {
-			fmt.Printf(time.Now().String() + " Sent AppendEntries: %+v to %+v\n", rpc, member);
+		if (VERBOSE > 0) {
+			fmt.Printf(time.Now().String() + " Sent AppendEntries start %d size %d to %+v\n", 
+				rpc.AppendRPC.PrevLogIndex, len(rpc.AppendRPC.Entries), member);
 		}
 	}
 	conn.Close()
