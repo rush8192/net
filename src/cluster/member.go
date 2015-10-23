@@ -9,7 +9,7 @@ import (
 /*
  * Member: respond to AppendEntries RPC
  */
-func HandleAppendEntries(ae AppendEntries) {
+func HandleAppendEntries(ae *AppendEntries) {
 	cluster.clusterLock.Lock()
 	node := GetNodeByHostname(ae.LeaderId)	
 	if (ae.Term > cluster.CurrentTerm) {
@@ -24,8 +24,9 @@ func HandleAppendEntries(ae AppendEntries) {
 	}
 	ResetElectionTimer(cluster)
 	response := &Message{}
+	response.AppendRPCResponse = &AppendEntriesResponse{}
 	response.MessageType = "AppendEntriesResponse"
-	aer := &response.AppendRPCResponse
+	aer := response.AppendRPCResponse
 	if (ae.Term < cluster.CurrentTerm ||
 	     	cluster.LastLogEntry < ae.PrevLogIndex ||
 	     	cluster.Log[ae.PrevLogIndex].Term != ae.PrevLogTerm) {
@@ -44,7 +45,7 @@ func HandleAppendEntries(ae AppendEntries) {
 	} else {
 		fmt.Printf("Accepted append entry request for log index %d\n", ae.PrevLogIndex + 1);
 		numNewEntries := int64(len(ae.Entries))
-		if (int64(len(cluster.Log) - 1) > ae.PrevLogIndex) {
+		if (int64(len(cluster.Log)) - numNewEntries > ae.PrevLogIndex) {
 			if (VERBOSE > 1) {
 				fmt.Printf("Reducing log size from %d to %d\n", len(cluster.Log), ae.PrevLogIndex + 1)
 			}

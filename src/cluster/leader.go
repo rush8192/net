@@ -11,6 +11,26 @@ import (
 
 const MAX_LOG_ENTRIES_PER_RPC = 5000
 
+type AppendEntries struct {
+	Term int64
+	Entries []LogEntry
+	LeaderCommit int64
+	PrevLogIndex int64
+	PrevLogTerm int64
+	LeaderId string
+	CId int64
+}
+
+type AppendEntriesResponse struct {
+	Term int64
+	PrevLogIndex int64
+	NewLogIndex int64
+	MemberLogIndex int64
+	Id string
+	Success bool
+	CId int64
+}
+
  /*
  * Leader: Sends a heartbeat (empty AppendEntries RPC) to each of the nodes in the cluster
  */ 
@@ -21,8 +41,12 @@ func Heartbeat() {
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			if (member.nextIndex != cluster.LastLogEntry + 1) {
-				maxToSend := int(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
-				go SendAppendRpc(cluster.Log[member.nextIndex : maxToSend], member, nil, 0)
+				maxToSend := int64(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+				if (maxToSend - member.nextIndex != 0) {
+					go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, nil, 0)
+				} else {
+					fmt.Printf("## empty rpc; alraedy sent by heartbeat?\n")
+				}
 			} else {
 				go SendAppendRpc(nil, member, nil, 0)
 			}
@@ -53,7 +77,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 		needListen = false
 	}
 	fmt.Printf("%d entries in log; sending append rpc with Previndex %d to %s\n", len(cluster.Log), (member.nextIndex - 1), member.Hostname)
-	rpc.AppendRPC = AppendEntries{ 	cluster.CurrentTerm, 
+	rpc.AppendRPC = &AppendEntries{ 	cluster.CurrentTerm, 
 									nil,
 									cluster.commitIndex,
 									(member.nextIndex - 1),
@@ -94,7 +118,7 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 	conn.Close()
 }
 
-func HandleAppendEntriesResponse(response AppendEntriesResponse) {
+func HandleAppendEntriesResponse(response *AppendEntriesResponse) {
 	respondKey := GetAppendResponseKey(response.Id, response.CId, response.MemberLogIndex - 1)
 	channel, ok := cluster.oustandingRPC[respondKey]
 	if (response.Id == "") {
@@ -137,7 +161,9 @@ func HandleAppendEntriesResponse(response AppendEntriesResponse) {
 	}
 }
 
-func SetPostElectionState() {
+// Updates status from candidate to leader. Sends blank entry to start term and notify
+// members
+func BecomeLeaderFromCandidate() {
 	fmt.Printf("Won election\n");
 	cluster.electionTimer.Stop() // can't timeout as leader
 	cluster.Leader = cluster.Self
@@ -152,43 +178,12 @@ func SetPostElectionState() {
 	go AppendCommandToLog(&Command{})
 }
 
-func leaderAppendToLog(command *Command) bool {
-	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
-	cluster.clusterLock.Lock()
-	commandLogIndex := cluster.LastLogEntry
-	if (!AppendToLog(append(make([]LogEntry, 0, 1), *logEntry))) {
-		cluster.clusterLock.Unlock()
-		return false
-	}
-	logIndex := cluster.LastLogEntry
-	if (VERBOSE > 1) {
-		fmt.Printf("Committed to own log\n")
-	}
-	voteChannel := make(chan bool, len(cluster.Members) - 1)
-	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
-	for _, member := range cluster.Members {
-		if (member != cluster.Self) {
-			maxToSend := int64(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
-			if (maxToSend - member.nextIndex != 0) {
-				go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, voteChannel, commandLogIndex)
-			} else {
-				fmt.Printf("## empty rpc; alraedy sent by heartbeat?\n")
-			}
-		}
-	}
-	ResetHeartbeatTimer()
-	if (VERBOSE > 1) {
-		fmt.Printf("Waiting for responses \n")
-	}
-	return QuorumOfResponses(voteChannel, votesNeeded, logIndex)
-}
-
 /*
  * Uses a channel to collect AppendEntriesResponses from members of the
  * cluster; returns true or false once outcome becomes definite, updating
  * the commitIndex as needed.
  */
-func QuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) bool {
+func LeaderQuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex int64) bool {
 	defer cluster.clusterLock.Unlock()
 	yesVotes := 1 // ourself
 	noVotes := 0

@@ -3,6 +3,7 @@ package cluster
 import "encoding/gob"
 import "fmt"
 import "log"
+import "math"
 import "os"
 import "time"
 
@@ -44,87 +45,41 @@ func AppendCommandToLog(command *Command) {
 	}
 	
 }
-
-func handleGet(command *Command) {
-	if (cluster.Self.State == LEADER || cluster.Self.State == MEMBER) {
-		highestConflictingEntry := int64(-1)
-		if (VERBOSE > 1) {
-			fmt.Printf("Finding highest conflicting entry\n")
-		}
-		for i, entry := range cluster.Log {
-			if (int64(i) <= cluster.LastApplied) {
-				continue
-			}
-			if (entry.C.Key == command.Key) {
-				highestConflictingEntry = int64(i)
-				if (VERBOSE > 1) {
-					fmt.Printf("Found entry in log with key from GET command\n")
-				}
-			}
-		}
-		cluster.clusterLock.Lock()
-		if (highestConflictingEntry == int64(-1) || 
-				updateStateMachineToLogIndex(highestConflictingEntry)) {
-			if (VERBOSE > 1) {
-				fmt.Printf("Fetching value from backing store\n")
-			}
-			command.Value = StoreGet(command.Key)
-		}
+func leaderAppendToLog(command *Command) bool {
+	logEntry := &LogEntry{ *command, cluster.CurrentTerm, time.Now() }
+	cluster.clusterLock.Lock()
+	commandLogIndex := cluster.LastLogEntry
+	if (!AppendToLog(append(make([]LogEntry, 0, 1), *logEntry))) {
 		cluster.clusterLock.Unlock()
+		return false
 	}
-}
-
-/* Updates the state machine up to the min of (commitIndex, logIndex) 
- * Must hold cluster lock when calling this method */
-func updateStateMachineToLogIndex(logIndex int64) bool {
-	var appliedEntries int64
-	// keep first no-op entry in log, apply others
-	fmt.Printf("Commit index at %d\n", cluster.commitIndex)
-	for appliedEntries = cluster.LastApplied + 1; 
-			appliedEntries <= logIndex && appliedEntries <= cluster.commitIndex; 
-			appliedEntries++ {
-		fmt.Printf("Applying command at index %d\n", appliedEntries)
-		success := ApplyToStateMachine(cluster.Log[appliedEntries])
-		if (!success) {
-			fmt.Printf("### Failed to apply entries to state machine #####\n")
-			break
+	logIndex := cluster.LastLogEntry
+	if (VERBOSE > 1) {
+		fmt.Printf("Committed to own log\n")
+	}
+	voteChannel := make(chan bool, len(cluster.Members) - 1)
+	votesNeeded := (len(cluster.Members) / 2) // plus ourself to make a quorum
+	for _, member := range cluster.Members {
+		if (member != cluster.Self) {
+			maxToSend := int64(math.Min(float64(len(cluster.Log)), float64(member.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+			if (maxToSend - member.nextIndex != 0) {
+				go SendAppendRpc(cluster.Log[member.nextIndex:maxToSend], member, voteChannel, commandLogIndex)
+			} else {
+				fmt.Printf("## empty rpc; alraedy sent by heartbeat?\n")
+			}
 		}
 	}
-	appliedEntries--
-	fmt.Printf("Successfully applied %d log entries to state machine\n", appliedEntries)
-	return true
+	ResetHeartbeatTimer()
+	if (VERBOSE > 1) {
+		fmt.Printf("Waiting for responses \n")
+	}
+	return LeaderQuorumOfResponses(voteChannel, votesNeeded, logIndex)
 }
 
-func ApplyToStateMachine(entry LogEntry) bool {
-	var success bool
-	switch entry.C.CType {
-	case NOOP: // do nothing
-		success = true
-	case PUT:
-		fallthrough
-	case UPDATE:
-		fmt.Printf("Placing value in file for key %s\n", entry.C.Key) 
-		success = StorePut(entry.C.Key, entry.C.Value)
-	case DELETE:
-		fmt.Printf("Deleting file for key %s\n", entry.C.Key) 
-		success = StoreDelete(entry.C.Key)
-	default:
-		fmt.Printf("Invalid command type in log %d", entry.C.CType)
-	}
-	if (success) {
-		cluster.LastApplied++
-		writeErr := SaveStateToFile()
-		if (writeErr != nil) {
-			fmt.Println(writeErr)
-			return false
-		}
-		success = true
-	} else {
-		fmt.Printf("Failed to apply command for entry %+v\n", entry)
-	}
-	return success
-}
-
+///////////////////////////////////////////////////////////
+//
+// Functions for persisting/loading log and cluster state to disk
+//
 func SaveStateToFile()  error {
 	tmpLogFile, err := os.Create(TMP_LOG_NAME)
 	if (err != nil) {

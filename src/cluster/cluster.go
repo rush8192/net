@@ -80,80 +80,35 @@ type Node struct {
 	nextIndex int64
 	matchIndex int64
 	State string
+	snapshotting bool
 	
 	/* used to synchronize access to node */
 	nodeLock sync.RWMutex
 }
 
 /* 
- * RPC messages sent from server to server
- */
-type RequestVote struct {
-	Term int64
-	Id string
-	LastLogIndex int64
-	LastLogTerm int64
-	
-}
-
-type RequestVoteResponse struct {
-	Term int64
-	VoteGranted bool
-}
-
-type AppendEntries struct {
-	Term int64
-	Entries []LogEntry
-	LeaderCommit int64
-	PrevLogIndex int64
-	PrevLogTerm int64
-	LeaderId string
-	CId int64
-}
-
-type AppendEntriesResponse struct {
-	Term int64
-	PrevLogIndex int64
-	NewLogIndex int64
-	MemberLogIndex int64
-	Id string
-	Success bool
-	CId int64
-}
-
-/* 
- * Wrapper for underlying messages
+ * Wrapper for all cluster messages. Message types are defined in the files where they
+ * are primarily used:
+ * AppendEntries/Response: leader.go
+ * RequestVote/Response: candidate.go
+ * InstallSnapshot/Response: snapshot.go
  */
 type Message struct {
+	// Contains the name of the message type. Only the message 
+	// field corresponding to that type will be populated 
 	MessageType string
-	AppendRPC AppendEntries
-	AppendRPCResponse AppendEntriesResponse
-	RequestVote RequestVote
-	RequestVoteResponse RequestVoteResponse
+	
+	AppendRPC *AppendEntries
+	AppendRPCResponse *AppendEntriesResponse
+	RequestVote *RequestVote
+	RequestVoteResponse *RequestVoteResponse
+	SnapshotRequest *InstallSnapshot
+	SnapshotResponse *InstallSnapshotResponse	
 }
 
+// Used to refer to the singleton cluster inside or outside of the package
 var C * Cluster = nil
 var cluster * Cluster = nil
-
-
-func InitSelfFromDefaultsFile(filename string) (*Node, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	
-	node := new(Node)
-	
-	scanner := bufio.NewScanner(file)
-	scanner.Scan()
-	line := scanner.Text()
-	splitLine := strings.Split(line, "\t")
-	node.Hostname = splitLine[0]
-	node.Ip = splitLine[1]
-	node.State = UNKNOWN
-	return node, nil
-}
 
 func PrintClusterInfo(cluster *Cluster) {
 	fmt.Printf("Cluster: %s\n", cluster.Name)
@@ -197,6 +152,9 @@ func InitCluster(filenameCluster string, filenameSelf string) (*Cluster, error) 
 	return cluster, nil
 }
 
+/*
+ * Initializes the cluster from a custom-format defaults file
+ */
 func InitClusterFromDefaultsFile(filename string , self *Node) (*Cluster, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -221,7 +179,7 @@ func InitClusterFromDefaultsFile(filename string , self *Node) (*Cluster, error)
 			cluster.Members[onIndex] = self
 			cluster.Self = self
 		} else {
-			node := &Node{ splitLine[0], splitLine[1], 0, 0, UNKNOWN, sync.RWMutex{} }
+			node := &Node{ splitLine[0], splitLine[1], 0, 0, UNKNOWN, false, sync.RWMutex{} }
 			cluster.Members[onIndex] = node
 		}
 		
@@ -237,6 +195,29 @@ func InitClusterFromDefaultsFile(filename string , self *Node) (*Cluster, error)
 	cluster.LastApplied = 0
 	cluster.CurrentTerm = 0
 	return cluster, nil
+}
+
+/*
+ * Initializes information about the local node based on the content of
+ * a special node configuration file
+ */
+func InitSelfFromDefaultsFile(filename string) (*Node, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	
+	node := new(Node)
+	
+	scanner := bufio.NewScanner(file)
+	scanner.Scan()
+	line := scanner.Text()
+	splitLine := strings.Split(line, "\t")
+	node.Hostname = splitLine[0]
+	node.Ip = splitLine[1]
+	node.State = UNKNOWN
+	return node, nil
 }
 
 
@@ -299,7 +280,7 @@ func ParseMessage(conn net.Conn) *Message {
 }
 
 func GetNodeByHostname(hostname string) *Node {
-	// TODO: set up a hash table
+	// TODO: set up a hash table if supporting larger clusters
 	for _, member := range cluster.Members {
 		if (member.Hostname == hostname) {
 			return member
@@ -309,7 +290,7 @@ func GetNodeByHostname(hostname string) *Node {
 }
 
 func GetMemberByIndex(target *Node) int {
-	// TODO: set up hash table
+	// TODO: set up hash table if supporting larger clusters
 	for i, member := range cluster.Members {
 		if (member == target) {
 			return i

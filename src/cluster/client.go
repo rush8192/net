@@ -8,7 +8,6 @@ import "net"
 import "os"
 import "os/signal"
 import "sync"
-import "sync/atomic"
 import "syscall"
 import "time"
 
@@ -25,6 +24,7 @@ type Client struct {
 	ClusterResponseByCommand map[int64]chan *Command
 	CmdRouteLock *sync.RWMutex
 	SerialCommandId int64
+	CommandIdLock sync.Mutex
 	WritePipe *os.File
 	CListener net.Listener
 }
@@ -34,7 +34,7 @@ type Client struct {
  * UPDATE, DELETE, and COMMIT commands from a client program
  */
 func InitClient(clientName string) *Client {
-	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1 ,nil, nil}
+	client := &Client{ clientName, &sync.Mutex{}, make(map[int64]chan *Command), &sync.RWMutex{}, 1, sync.Mutex{}, nil, nil}
 	RegisterClient(client)
 	done := make(chan bool)
     go ListenForCommandResponses(client, done)
@@ -146,8 +146,10 @@ func (client *Client) Put(key string, value []byte) (string, error) {
 	putCmd.CType = PUT
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
-	
+	client.CommandIdLock.Lock()
+	client.SerialCommandId += 1
+	putCmd.CId = client.SerialCommandId
+	client.CommandIdLock.Unlock()
 	responseChannel := make(chan *Command)
 	client.CmdRouteLock.Lock()
 	client.ClusterResponseByCommand[putCmd.CId] = responseChannel
@@ -186,7 +188,10 @@ func (client *Client) Update(key string, value []byte) (string, error) {
 	putCmd.CType = UPDATE
 	putCmd.Key = key
 	putCmd.Value = value
-	putCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
+	client.CommandIdLock.Lock()
+	client.SerialCommandId += 1
+	putCmd.CId = client.SerialCommandId
+	client.CommandIdLock.Unlock()
 	
 	responseChannel := make(chan *Command)
 	client.CmdRouteLock.Lock()
@@ -222,7 +227,10 @@ func (client *Client) Delete(key string) (string, error) {
 	dltCmd := &Command{}
 	dltCmd.CType = DELETE
 	dltCmd.Key = key
-	dltCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
+	client.CommandIdLock.Lock()
+	client.SerialCommandId += 1
+	dltCmd.CId = client.SerialCommandId
+	client.CommandIdLock.Unlock()
 	
 	responseChannel := make(chan *Command)
 	client.CmdRouteLock.Lock()
@@ -258,7 +266,10 @@ func (client *Client) Get(key string) ([]byte, error) {
 	getCmd := &Command{}
 	getCmd.CType = GET
 	getCmd.Key = key
-	getCmd.CId = atomic.AddInt64(&client.SerialCommandId, 1)
+	client.CommandIdLock.Lock()
+	client.SerialCommandId += 1
+	getCmd.CId = client.SerialCommandId
+	client.CommandIdLock.Unlock()
 	
 	responseChannel := make(chan *Command)
 	client.CmdRouteLock.Lock()

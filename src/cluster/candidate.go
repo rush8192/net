@@ -8,13 +8,26 @@ import (
 	"time"
 )
 
+type RequestVote struct {
+	Term int64
+	Id string
+	LastLogIndex int64
+	LastLogTerm int64
+	
+}
+
+type RequestVoteResponse struct {
+	Term int64
+	VoteGranted bool
+}
+
 /*
  * Candidate: send vote request
  */
 func SendVoteRequest(target *Node, retry bool) {
 	m := &Message{}
 	fmt.Printf("Cluster log has length %d last entry is %d\n", len(cluster.Log), cluster.LastLogEntry)
-	m.RequestVote = RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, cluster.LastLogEntry, 
+	m.RequestVote = &RequestVote{ cluster.CurrentTerm, cluster.Self.Hostname, cluster.LastLogEntry, 
 								 cluster.Log[cluster.LastLogEntry].Term }
 	m.MessageType = "RequestVote"
 	fmt.Printf("Dialing %s\n", target.Ip)
@@ -45,14 +58,14 @@ func SendVoteRequest(target *Node, retry bool) {
 /*
  * Candidate: handle vote request response
  */
-func HandleVoteResponse(vr RequestVoteResponse) {
+func HandleVoteResponse(vr *RequestVoteResponse) {
 	if (vr.VoteGranted == true) {
 		cluster.clusterLock.Lock()
 		defer cluster.clusterLock.Unlock()
 		if (cluster.Self.State != LEADER) {
 			cluster.votesCollected++
 			if (cluster.votesCollected > (len(cluster.Members) / 2)) {
-				SetPostElectionState()
+				BecomeLeaderFromCandidate()
 			}
 		}
 	} 
@@ -71,7 +84,7 @@ func ResetElectionTimer(cluster * Cluster) bool {
 	return true
 }
 
-func HandleVoteRequest(vr RequestVote) {
+func HandleVoteRequest(vr *RequestVote) {
 	m := &Message{}
 	m.MessageType = "RequestVoteResponse"
 	sender := GetNodeByHostname(vr.Id)
@@ -89,7 +102,7 @@ func HandleVoteRequest(vr RequestVote) {
 	if (vr.Term >= cluster.CurrentTerm && (cluster.VotedFor == nil || cluster.VotedFor == sender) &&
 			cluster.Log[cluster.LastLogEntry].Term <= vr.LastLogTerm &&
 			cluster.LastLogEntry <=  vr.LastLogIndex) {
-		m.RequestVoteResponse = RequestVoteResponse{ vr.Term, true}
+		m.RequestVoteResponse = &RequestVoteResponse{ vr.Term, true}
 		cluster.CurrentTerm = vr.Term
 		cluster.VotedFor = sender
 		cluster.Leader = sender
@@ -97,7 +110,7 @@ func HandleVoteRequest(vr RequestVote) {
 		cluster.Self.State = MEMBER
 	} else {
 		fmt.Printf("Rejecting vote request from %s\n", vr.Id)
-		m.RequestVoteResponse = RequestVoteResponse{ cluster.CurrentTerm, false }
+		m.RequestVoteResponse = &RequestVoteResponse{ cluster.CurrentTerm, false }
 	}
 	targetNode := GetNodeByHostname(vr.Id)
 	if (targetNode == nil) {
