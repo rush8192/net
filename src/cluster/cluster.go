@@ -60,9 +60,14 @@ type Cluster struct {
 	LastLogEntry int64
 	commitIndex int64  // set to 0 on restart
 	
-	// Used to route responses to outstanding rpcs
+	/* Used to route responses to outstanding rpcs */
 	oustandingRPC map[string]chan bool
 	rpcLock sync.Mutex
+	
+	/* Used when snapshotting. Tracks log compaction */
+	snapshotTimer *time.Timer
+	LastCompactedEntry int64
+	snapshotting bool
 	
 	/* used to synchronize access to cluster state */
 	clusterLock sync.RWMutex

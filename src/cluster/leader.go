@@ -148,11 +148,22 @@ func HandleAppendEntriesResponse(response *AppendEntriesResponse) {
 		if (ok) {
 			channel <- false
 		}
-		
-		node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
-		maxToSend := int(math.Min(float64(len(cluster.Log)), float64(node.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
-		go SendAppendRpc(cluster.Log[node.nextIndex : 
-			maxToSend], node, nil, 0)
+		if (response.MemberLogIndex < cluster.LastCompactedEntry && !node.snapshotting) {
+			fmt.Printf("Sending snapshot to %s\n" , node.Hostname)
+			stoppedTimer := SnapshotStopTimer()
+			if (stoppedTimer) {
+				
+			} else {
+				fmt.Printf("Failed to stop timer; waiting for snapshot to finish\n")
+			}
+			// send snapshot
+		} else {
+			// append to log
+			node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
+			maxToSend := int(math.Min(float64(len(cluster.Log)), float64(node.nextIndex + MAX_LOG_ENTRIES_PER_RPC)))
+			go SendAppendRpc(cluster.Log[node.nextIndex : 
+				maxToSend], node, nil, 0)
+		}
 	}
 	if (ok) {
 		cluster.rpcLock.Lock()
@@ -166,6 +177,7 @@ func HandleAppendEntriesResponse(response *AppendEntriesResponse) {
 func BecomeLeaderFromCandidate() {
 	fmt.Printf("Won election\n");
 	cluster.electionTimer.Stop() // can't timeout as leader
+	SnapshotSetTimer()
 	cluster.Leader = cluster.Self
 	cluster.Self.State = LEADER
 	for _, member := range cluster.Members {

@@ -17,6 +17,7 @@ func HandleAppendEntries(ae *AppendEntries) {
 		cluster.Self.State = MEMBER
 		cluster.Leader = node
 		cluster.VotedFor = nil
+		SnapshotSetTimer()
 	}
 	if (ae.LeaderId == "" || cluster.Self.State != MEMBER) {
 		cluster.clusterLock.Unlock()
