@@ -120,7 +120,9 @@ func SendAppendRpc(entry []LogEntry, member *Node, success chan bool, logIndex i
 
 func HandleAppendEntriesResponse(response *AppendEntriesResponse) {
 	respondKey := GetAppendResponseKey(response.Id, response.CId, response.MemberLogIndex - 1)
+	cluster.rpcLock.Lock()
 	channel, ok := cluster.oustandingRPC[respondKey]
+	cluster.rpcLock.Unlock()
 	if (response.Id == "") {
 		return
 	}
@@ -152,11 +154,19 @@ func HandleAppendEntriesResponse(response *AppendEntriesResponse) {
 			fmt.Printf("Sending snapshot to %s\n" , node.Hostname)
 			stoppedTimer := SnapshotStopTimer()
 			if (stoppedTimer) {
-				
+				err := SnapshotReplica(node, true)
+				if (err != nil) {
+					if (VERBOSE > 0) {
+						fmt.Printf("Failed to install snapshot on %s: %s\n", node.Hostname, err)
+					}
+				} else {
+					if (VERBOSE > 0) {
+						fmt.Printf("Successfully sent snapshot to %s\n", node.Hostname)
+					}
+				}
 			} else {
 				fmt.Printf("Failed to stop timer; waiting for snapshot to finish\n")
 			}
-			// send snapshot
 		} else {
 			// append to log
 			node.nextIndex = int64(math.Min(float64(response.MemberLogIndex + 1), float64(response.PrevLogIndex)))
@@ -201,6 +211,17 @@ func LeaderQuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex in
 	noVotes := 0
 	timeout := time.After(TIMEOUT_MS * time.Millisecond)
 	for {
+		if (votesNeeded == 0) {
+			if (VERBOSE > 0) {
+				fmt.Printf("Successfully committed %d, append success\n", logIndex)
+			}
+			cluster.commitIndex = logIndex
+			return true
+		}
+		if (votesNeeded > (len(cluster.Members) - (noVotes + yesVotes))) {
+			fmt.Printf("Too many no votes, append fails\n")
+			return false
+		}
 		var vote bool
 		select {
 		case <- timeout:
@@ -216,17 +237,6 @@ func LeaderQuorumOfResponses(voteChannel chan bool, votesNeeded int, logIndex in
 			votesNeeded--
 		} else {
 			noVotes++
-		}
-		if (votesNeeded == 0) {
-			if (VERBOSE > 0) {
-				fmt.Printf("Successfully committed %d, append success\n", logIndex)
-			}
-			cluster.commitIndex = logIndex
-			return true
-		}
-		if (votesNeeded > (len(cluster.Members) - (noVotes + yesVotes))) {
-			fmt.Printf("Too many no votes, append fails\n")
-			return false
 		}
 	}
 }

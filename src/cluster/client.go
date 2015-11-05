@@ -313,25 +313,21 @@ func ListenForClients(pipename string) {
 	}
 	servedClients := make(map[string]bool)
 	fmt.Printf("About to open pipe %s for read\n", pipename)
-	readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
-	if err != nil {
-		fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
-		log.Fatal(err)
-	}
-	defer readPipe.Close()
 	for {
+		readPipe, err := os.OpenFile(pipename, os.O_RDONLY, 0666)
+		if err != nil {
+			fmt.Printf("Could not open register pipe %s for read\n", REGISTER_PIPE)
+			continue
+			//log.Fatal(err)
+		}
 		msg := &Registration{}
 		dataDecoder := gob.NewDecoder(readPipe)
 		err = dataDecoder.Decode(msg)
 		if err != nil {
 			fmt.Printf("Error decoding registration msg from %s\n", pipename);
 			//log.Fatal(err)
+		} else {
 			readPipe.Close()
-			readPipe, err = os.OpenFile(pipename, os.O_RDONLY, 0666)
-			if err != nil {
-				fmt.Printf("Could not open register pipe for read)\n", REGISTER_PIPE)
-				log.Fatal(err)
-			}
 		}
 		if (msg.ClientName == "") {
 			continue

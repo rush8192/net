@@ -159,6 +159,10 @@ func ElectionTimeout() {
 	fmt.Printf("Timed out, starting election in term %d\n", cluster.CurrentTerm)
 	cluster.VotedFor = cluster.Self
 	cluster.votesCollected = 1
+	if (len(cluster.Members) == 1) {
+		BecomeLeaderFromCandidate()
+		return
+	}
 	for _, member := range cluster.Members {
 		if (member != cluster.Self) {
 			go SendVoteRequest(member, true)
