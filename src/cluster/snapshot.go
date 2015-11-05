@@ -126,6 +126,7 @@ func TakeSnapshot() {
 				if (err != nil) {
 					fmt.Fprintln(os.Stderr, err) 
 				} else {
+					cluster.LastCompactedEntry = snapshot.LastIncludedIndex
 					if (VERBOSE > 0) {
 						fmt.Printf("Successfully took snapshot to %s\n", SNAPSHOT_FOLDER)
 					}
