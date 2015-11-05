@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const MAX_LOG_ENTRIES_PER_RPC = 5000
+const MAX_LOG_ENTRIES_PER_RPC = 100
 
 type AppendEntries struct {
 	Term int64

@@ -256,16 +256,17 @@ func HandleInstallSnapshot(is *InstallSnapshot) {
 		byteIndex += bytesWritten
 	}
 	if (is.Done) {
-		finalizeSnapshot(INCOMING_SNAPSHOT)
+		finalizeSnapshot(INCOMING_SNAPSHOT, is)
 	}
 }
 
-func finalizeSnapshot(tmpname string) {
+func finalizeSnapshot(tmpname string, is *InstallSnapshot) {
 	StoreClear()
 	err := unzip(tmpname, DB_DIR)
 	if (err != nil) {
 		fmt.Fprintln(os.Stderr, err)
 	} else {
+		cluster.LastCompactedEntry = is.LastIncludedIndex 
 		if (VERBOSE > 0) {
 			fmt.Printf("Finalized snapshot to %s\n", DB_DIR)
 		}
